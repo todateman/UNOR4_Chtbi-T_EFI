@@ -5,8 +5,9 @@
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
+#include "fastestDigitalRW.hpp"
 
-int IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
+uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
 volatile unsigned long tachoBefore = 0;  // クランクセンサーの前回の反応時の時間
 volatile unsigned long tachoAfter = 0;  // クランクセンサーの今回の反応時の時間
@@ -17,31 +18,34 @@ volatile unsigned long tachoNow_IGN = 0;  // 点火開始時の時間
 volatile unsigned long tachoNow = 0;  // 現在の時間
 volatile float tachoRpm = 0;  // エンジンの回転数[rpm]
 volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
-volatile int IGN_CA = 0;  // 点火時期[CA]
-volatile bool INJ_Status = false;
-volatile int IGN_Status = 0;
+volatile uint8_t IGN_CA = 0;  // 点火時期[CA]
+volatile uint8_t INJ_Status = 0;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
+volatile uint8_t IGN_Status = 0;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 
-int NE_IN = 2; // クランク角センサ入力・外部割込み
-int G_IN = 3; // カム角センサ入力・外部割込み
-int STR_IN = 5; // スタータボタン入力
-int IN_6 = 6; // 拡張入力
-int LOG_IN = 7; // ログのON/OFF
-int SD_IN = 9; // microSD挿入チェック
-int INJ_OUT = A0; // インジェクタ出力
-int IGN_OUT = A1; // イグニッション出力
-int STR_OUT = A2; // スタータ出力
-int OUT_A3 = A3; // スタータ出力
+uint8_t NE_IN = 2; // クランク角センサ入力・外部割込み
+uint8_t G_IN = 3; // カム角センサ入力・外部割込み
+uint8_t STR_IN = 5; // スタータボタン入力
+uint8_t IN_6 = 6; // 拡張入力
+uint8_t LOG_IN = 7; // ログのON/OFF
+uint8_t SD_IN = 9; // microSD挿入チェック
+uint8_t INJ_OUT = A0; // インジェクタ出力
+uint8_t IGN_OUT = A1; // イグニッション出力
+uint8_t STR_OUT = A2; // スタータ出力
+uint8_t OUT_A3 = A3; // スタータ出力
+uint8_t NE_COUNT = 0;  // クランクパルス数
+uint8_t NE_COUNT_MAX = 36;  // クランク1回転分のクランクパルス
 
-const int chipSelect = 10;  // 10ピンをSSとする
+
+const uint8_t chipSelect = 10;  // 10ピンをSSとする
 File logFile;
 char fileName[16];       // ファイル名
-int fileNum = 0;         // ファイル連番
+uint8_t fileNum = 0;         // ファイル連番
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
 bool SDMAP = false;
 float rpm1[20]; //要素記憶用の配列を作成
 float inj1[20];
-int ign1[20];
-int row;
+uint8_t ign1[20];
+uint8_t row;
 
 // 点火MAP
 void INJ_IGN() {
@@ -118,7 +122,7 @@ void INJ_IGN() {
 
 // SDの点火MAP
 void INJ_IGN_SD() {
-  for (int i = 0; i < row; i++) { //整理したデータをタブで区切って表示
+  for (uint8_t i = 0; i < row; i++) { //整理したデータをタブで区切って表示
     if (tachoRpm < rpm1[i]) {
       INJ_time = inj1[i];
       IGN_CA = ign1[i];
@@ -131,6 +135,11 @@ void INJ_IGN_SD() {
   }
 }
 
+// クランクパルスカウント
+void NE_PULSE() {
+  NE_COUNT++;
+  //Serial.println(NE_COUNT);
+}
 
 // 回転数判定・点火制御
 void tachometer() {
@@ -141,36 +150,22 @@ void tachometer() {
 
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(1回転当たりの時間)を計算
-  tachoRpm = 60000000.0 / tachoWidth;  //クランクの回転数[rpm]を計算
+  tachoRpm = 60000000.0 / tachoWidth;     //クランクの回転数[rpm]を計算
+  NE_COUNT = 0;                           // クランクパルス数を初期化
+  INJ_Status = 1;                         // 噴射ステータスOFF
+  IGN_Status = 1;                         // 点火ステータスOFF
 
-  if (SDMAP) {      // SD内の点火MAPが使用できる場合
+  if (SDMAP) {     // SD内の点火MAPが使用できる場合
     INJ_IGN_SD();  // SDから読んだ点火MAP
   }
   else {
     INJ_IGN();     // 本コード内の点火MAP
   }
 
-  // 点火時期判定
-  if (tachoWidth > tachoWidth_b ) {  // 前回より回転が落ちている場合
-    IGN_Status_c = '-';  // 今回ON
-
-    //INJ_Status = false;  // 噴射無効
-    //IGN_Status = 0;  // (次のTDC前に)点火無効
-  }
-  else {
-    IGN_Status_c = 'o';  // 今回OFF
-
-    INJ_Status = true;   // 噴射有効
-    digitalWrite(INJ_OUT, LOW);  // 噴射開始
-    tachoNow_INJ = tachoAfter;
-
-    IGN_Status = 1;  // (次のTDC前に)点火有効
-  }
-
   dtostrf(tachoRpm, 6, 2, Rpm_b);
   dtostrf(INJ_time, 2, 1, INJ_b);
-  sprintf_P(Info_b, PSTR("%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA] %c"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA, IGN_Status_c);
-  Serial.println(Info_b);
+  sprintf_P(Info_b, PSTR("\n%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA] %c"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA, IGN_Status_c);
+  Serial.print(Info_b);
 
   if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
     if(!SD.exists(fileName)) {  // ログファイルが無かったらヘッダを書き込む
@@ -200,12 +195,6 @@ void tachometer() {
     logFile.close();
   }
 
-  if ( INJ_Status ) {
-    Serial.print("INJ_ON: \t");
-    Serial.print(tachoNow_INJ);
-    Serial.println(" [us]");
-  }
-
   tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
   tachoWidth_b = tachoWidth;
 }
@@ -225,9 +214,9 @@ void parseCSV() {
       Serial.print(line);     // 行全体を画面に表示
       line.trim();            // 行に含まれる不要な空白を取り除く
 
-      int column = 0;         // 行に含まれる要素番号カウントする変数
-      int num_end = 0;        // 要素の終わりの列番号を記憶する変数
-      int num_start = 0;      // 要素の始まりの列番号を記憶する変数
+      uint8_t column = 0;         // 行に含まれる要素番号カウントする変数
+      uint8_t num_end = 0;        // 要素の終わりの列番号を記憶する変数
+      uint8_t num_start = 0;      // 要素の始まりの列番号を記憶する変数
 
       if (0 < row_inheader) {       // ヘッダーを読み込まないように除外する
         while (num_end != -1) {     // 範囲内に','がなくなるまで繰り返し
@@ -259,7 +248,7 @@ void parseCSV() {
 
 // 点火MAPファイルの表示
 void printData() {
-  for (int i = 0; i < row; i++) //整理したデータをタブで区切って表示
+  for (uint8_t i = 0; i < row; i++) //整理したデータをタブで区切って表示
   {
     Serial.println(String(rpm1[i]) + '\t' + String(inj1[i]) + '\t' + String(ign1[i]));
   }
@@ -331,8 +320,8 @@ void setup() {
     Serial.print(F("Don't use SD card"));
   }
   
-  attachInterrupt(digitalPinToInterrupt(NE_IN), tachometer, RISING);  // 外部割り込み（NE_IN）
-  //attachInterrupt(digitalPinToInterrupt(G_IN), tachometer, RISING);  // 外部割り込み（G_IN）
+  attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   RISING); // 外部割り込み（NE_IN）
+  attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, RISING); // 外部割り込み（G_IN）
 
 }
 
@@ -347,39 +336,56 @@ void loop() {
   else {
     digitalWrite(STR_OUT, HIGH);  // スタータOFF
   }
-  
-  // 噴射有効時
-  if (INJ_Status) {
-    if (tachoNow - tachoNow_INJ >= INJ_time * 1000){  // 噴射時間(us)を超えたら
-      digitalWrite(INJ_OUT, HIGH);  // 噴射停止
-      INJ_Status = false;            // 噴射無効に切替
-      Serial.print("INJ_OFF:\t");
-      Serial.print(tachoNow);
-      Serial.println(" [us]");
+
+  // 噴射OFFステータス時
+  if (INJ_Status == 1) {
+    if ( float(360 / NE_COUNT_MAX * NE_COUNT) >= 360.0 ){  // クランク角CAが点火基準位相から360度以上進んだら
+      tachoNow_INJ = tachoNow;
+      //digitalWrite(INJ_OUT, LOW);   // 噴射ON
+      fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+      INJ_Status = 2;               // 噴射ONステータス
+      Serial.print("\tINJ_ON: ");
+      Serial.print(tachoNow_INJ);
+      Serial.print(" [us]");
     }
   }
 
-  // 点火有効時
-  if (IGN_Status == 1) {
-    if ( tachoNow - tachoBefore >= tachoWidth / 360 * (360 - IGN_Standard - IGN_CA) ){  // TDCから進角角度相当の時間(us)が経過したら
-      digitalWrite(IGN_OUT, LOW);  // 点火開始
-      tachoNow_IGN = tachoNow;
-      IGN_Status = 2;                   // 点火無効予約
-      Serial.print("IGN_ON: \t");
-      Serial.print(tachoNow_IGN);
-      Serial.println(" [us]");
-    }
-  }
-  // 点火無効予約時
-  else if (IGN_Status == 2) {
-    if ( tachoNow - tachoNow_IGN >= 1000){  // 点火維持時間(1000us)が経過したら
-      digitalWrite(IGN_OUT, HIGH);  // 点火停止
-      IGN_Status = 0;                  // 点火無効に切替
-      Serial.print("IGN_OFF:\t");
+  // 噴射ONステータス時
+  if (INJ_Status == 2) {
+    if ( tachoNow - tachoNow_INJ >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
+      //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+      fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+      INJ_Status = 0;               // 噴射無効ステータス
+      Serial.print("\tINJ_OFF: ");
       Serial.print(tachoNow);
-      Serial.println(" [us]");
+      Serial.print(" [us]");
     }
   }
+  
+  //点火OFFステータス時
+  if (IGN_Status == 1)  {  
+    if ( float(360 / NE_COUNT_MAX * NE_COUNT) >= IGN_CA ){  // クランク角CAが進角角度以上進んだら
+      tachoNow_IGN = tachoNow;
+      //digitalWrite(IGN_OUT, LOW);   // 点火ON
+      fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+      IGN_Status = 2;               // 点火ONステータス
+      Serial.print("\tIGN_ON: ");
+      Serial.print(tachoNow_IGN);
+      Serial.print(" [us]");
+    }
+  }
+
+  // 点火ONステータス時
+  if (IGN_Status == 2) {
+    if ( tachoNow - tachoNow_IGN >= 1000){  // 点火維持時間(1000us)が経過したら
+      //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
+      fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
+      IGN_Status = 0;               // 点火無効ステータス
+      Serial.print("\tIGN_OFF: ");
+      Serial.print(tachoNow);
+      Serial.print(" [us]");
+    }
+  } 
 
   delayMicroseconds(10);  // 10us停止
 }
