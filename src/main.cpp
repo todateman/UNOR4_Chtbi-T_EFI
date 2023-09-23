@@ -150,7 +150,7 @@ void tachometer() {
 
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(1回転当たりの時間)を計算
-  tachoRpm = 60000000.0 / tachoWidth;     //クランクの回転数[rpm]を計算
+  tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
   NE_COUNT = 0;                           // クランクパルス数を初期化
   INJ_Status = 1;                         // 噴射ステータスOFF
   IGN_Status = 1;                         // 点火ステータスOFF
@@ -163,7 +163,7 @@ void tachometer() {
   }
 
   dtostrf(tachoRpm, 6, 2, Rpm_b);
-  dtostrf(INJ_time, 2, 1, INJ_b);
+  dtostrf(INJ_time, 3, 2, INJ_b);
   sprintf_P(Info_b, PSTR("\n%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA] %c"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA, IGN_Status_c);
   Serial.print(Info_b);
 
@@ -173,7 +173,6 @@ void tachometer() {
       if (logFile){
         logFile.println(F("rpm,Before[us],After[us],Width[us],INJ[ms],IGN[CA],IGN ON"));
       }
-      logFile.close();
     }
 
     logFile = SD.open(fileName, FILE_WRITE);
@@ -194,7 +193,8 @@ void tachometer() {
     }
     logFile.close();
   }
-
+  
+  
   tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
   tachoWidth_b = tachoWidth;
 }
@@ -339,7 +339,7 @@ void loop() {
 
   // 噴射OFFステータス時
   if (INJ_Status == 1) {
-    if ( float(360 / NE_COUNT_MAX * NE_COUNT) >= 360.0 ){  // クランク角CAが点火基準位相から360度以上進んだら
+    if ( int(360 / NE_COUNT_MAX * NE_COUNT) >= 360 ){  // クランク角CAが点火基準位相から360度以上進んだら
       tachoNow_INJ = tachoNow;
       //digitalWrite(INJ_OUT, LOW);   // 噴射ON
       fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
@@ -364,7 +364,7 @@ void loop() {
   
   //点火OFFステータス時
   if (IGN_Status == 1)  {  
-    if ( float(360 / NE_COUNT_MAX * NE_COUNT) >= IGN_CA ){  // クランク角CAが進角角度以上進んだら
+    if ( int(360 / NE_COUNT_MAX * NE_COUNT) >= IGN_CA ){  // クランク角CAが進角角度以上進んだら
       tachoNow_IGN = tachoNow;
       //digitalWrite(IGN_OUT, LOW);   // 点火ON
       fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
