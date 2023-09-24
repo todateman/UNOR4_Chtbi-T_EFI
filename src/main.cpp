@@ -13,14 +13,18 @@ volatile unsigned long tachoBefore = 0;  // クランクセンサーの前回の
 volatile unsigned long tachoAfter = 0;  // クランクセンサーの今回の反応時の時間
 volatile unsigned long tachoWidth = 0;  // クランク一回転の時間　tachoAfter - tachoBefore
 volatile unsigned long tachoWidth_b = 0;  // 前回のクランク一回転の時間
-volatile unsigned long tachoNow_INJ = 0;  // 噴射開始時の時間
-volatile unsigned long tachoNow_IGN = 0;  // 点火開始時の時間
-volatile unsigned long tachoNow = 0;  // 現在の時間
+volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
+volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
+volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
+volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
+volatile unsigned long timeNow = 0;  // 現在の時間
 volatile float tachoRpm = 0;  // エンジンの回転数[rpm]
 volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
 volatile uint8_t IGN_CA = 0;  // 点火時期[CA]
-volatile uint8_t INJ_Status = 0;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
-volatile uint8_t IGN_Status = 0;  // 点火ステータス(0: 無効 1: OFF 2:ON)
+volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
+volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
+volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
+volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 
 uint8_t NE_IN = 2; // クランク角センサ入力・外部割込み
 uint8_t G_IN = 3; // カム角センサ入力・外部割込み
@@ -145,16 +149,13 @@ void NE_PULSE() {
 void tachometer() {
   char Info_b[110];
   char Rpm_b[8];
-  char INJ_b[4];
-  char IGN_Status_c;
+  char INJ_b[5];
 
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(1回転当たりの時間)を計算
   tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
   NE_COUNT = 0;                           // クランクパルス数を初期化
-  INJ_Status = 1;                         // 噴射ステータスOFF
-  IGN_Status = 1;                         // 点火ステータスOFF
-
+  
   if (SDMAP) {     // SD内の点火MAPが使用できる場合
     INJ_IGN_SD();  // SDから読んだ点火MAP
   }
@@ -162,10 +163,25 @@ void tachometer() {
     INJ_IGN();     // 本コード内の点火MAP
   }
 
+  if (INJ_time > 0) {
+    INJ_Status = 1;
+  }
+  else {
+    INJ_Status = 0;
+    timeNow_INJ_ON = NULL;
+    timeNow_INJ_OFF = NULL;
+  }
+  //INJ_Status = 1;              // 噴射ステータスOFF
+  //IGN_Status = 1;              // 点火ステータスOFF
+  INJ_His = false;               // 噴射履歴をリセット
+  IGN_His = false;               // 点火履歴をリセット
+
   dtostrf(tachoRpm, 6, 2, Rpm_b);
   dtostrf(INJ_time, 3, 2, INJ_b);
-  sprintf_P(Info_b, PSTR("\n%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA] %c"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA, IGN_Status_c);
+  sprintf_P(Info_b, PSTR("%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA]"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA);
   Serial.print(Info_b);
+  sprintf_P(Info_b, PSTR("\tINJON: %lu[us]\tINJOFF: %lu[us]\tIGNON: %lu[us]\tIGNOFF: %lu[us]"), timeNow_INJ_ON, timeNow_INJ_OFF, timeNow_IGN_ON, timeNow_IGN_OFF);
+  Serial.println(Info_b);
 
   if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
     if(!SD.exists(fileName)) {  // ログファイルが無かったらヘッダを書き込む
@@ -187,9 +203,7 @@ void tachometer() {
       logFile.print(F(","));
       logFile.print(INJ_b);
       logFile.print(F(","));
-      logFile.print(IGN_CA);
-      logFile.print(F(","));
-      logFile.println(IGN_Status_c);
+      logFile.println(IGN_CA);
     }
     logFile.close();
   }
@@ -326,7 +340,7 @@ void setup() {
 }
 
 void loop() {
-  tachoNow = micros();  // 現在の時刻を記録
+  timeNow = micros();  // 現在の時刻を記録
 
   // スタータボタンを押したとき
   if (digitalRead(STR_IN) == LOW){
@@ -338,52 +352,48 @@ void loop() {
   }
 
   // 噴射OFFステータス時
-  if (INJ_Status == 1) {
-    if ( int(360 / NE_COUNT_MAX * NE_COUNT) >= 360 ){  // クランク角CAが点火基準位相から360度以上進んだら
-      tachoNow_INJ = tachoNow;
+  if ( INJ_Status == 1 && !INJ_His ) {
+    if ( NE_COUNT == NE_COUNT_MAX ){  // クランク角CAが点火基準位相から360以上進んだら
+      timeNow_INJ_ON = timeNow;     // 噴射開始時の時刻を記録
+      INJ_His = true;               // 噴射履歴あり
       //digitalWrite(INJ_OUT, LOW);   // 噴射ON
       fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
       INJ_Status = 2;               // 噴射ONステータス
-      Serial.print("\tINJ_ON: ");
-      Serial.print(tachoNow_INJ);
-      Serial.print(" [us]");
+      //Serial.println("INJ_ON");
     }
   }
 
   // 噴射ONステータス時
-  if (INJ_Status == 2) {
-    if ( tachoNow - tachoNow_INJ >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
+  if ( INJ_Status == 2 ) {
+    if ( timeNow - timeNow_INJ_ON >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
+      timeNow_INJ_OFF = timeNow;    // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      INJ_Status = 0;               // 噴射無効ステータス
-      Serial.print("\tINJ_OFF: ");
-      Serial.print(tachoNow);
-      Serial.print(" [us]");
+      INJ_Status = 1;               // 噴射無効ステータス
+      //Serial.println("INJ_OFF");
     }
   }
   
   //点火OFFステータス時
-  if (IGN_Status == 1)  {  
-    if ( int(360 / NE_COUNT_MAX * NE_COUNT) >= IGN_CA ){  // クランク角CAが進角角度以上進んだら
-      tachoNow_IGN = tachoNow;
+  if ( IGN_Status == 1 && !IGN_His )  {  
+    if ( NE_COUNT == ( NE_COUNT_MAX * 2 ) - IGN_CA / (360 / NE_COUNT_MAX) ){  // クランク角CAが進角角度以上進んだら
+      timeNow_IGN_ON = timeNow;     // 点火開始時の時刻を記録
+      IGN_His = true;               // 点火履歴あり
       //digitalWrite(IGN_OUT, LOW);   // 点火ON
       fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
       IGN_Status = 2;               // 点火ONステータス
-      Serial.print("\tIGN_ON: ");
-      Serial.print(tachoNow_IGN);
-      Serial.print(" [us]");
+      //Serial.println("IGN_ON");
     }
   }
 
   // 点火ONステータス時
-  if (IGN_Status == 2) {
-    if ( tachoNow - tachoNow_IGN >= 1000){  // 点火維持時間(1000us)が経過したら
+  if ( IGN_Status == 2 ) {
+    if ( timeNow - timeNow_IGN_ON >= 1000){  // 点火維持時間(1000us)が経過したら
+      timeNow_IGN_OFF = timeNow;    // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      IGN_Status = 0;               // 点火無効ステータス
-      Serial.print("\tIGN_OFF: ");
-      Serial.print(tachoNow);
-      Serial.print(" [us]");
+      IGN_Status = 1;               // 点火無効ステータス
+      //Serial.println("IGN_OFF");
     }
   } 
 
