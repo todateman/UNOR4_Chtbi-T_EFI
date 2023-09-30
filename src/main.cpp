@@ -228,9 +228,9 @@ void parseCSV() {
       Serial.print(line);     // 行全体を画面に表示
       line.trim();            // 行に含まれる不要な空白を取り除く
 
-      uint8_t column = 0;         // 行に含まれる要素番号カウントする変数
-      uint8_t num_end = 0;        // 要素の終わりの列番号を記憶する変数
-      uint8_t num_start = 0;      // 要素の始まりの列番号を記憶する変数
+      int column = 0;         // 行に含まれる要素番号カウントする変数
+      int num_end = 0;        // 要素の終わりの列番号を記憶する変数
+      int num_start = 0;      // 要素の始まりの列番号を記憶する変数
 
       if (0 < row_inheader) {       // ヘッダーを読み込まないように除外する
         while (num_end != -1) {     // 範囲内に','がなくなるまで繰り返し
@@ -262,7 +262,7 @@ void parseCSV() {
 
 // 点火MAPファイルの表示
 void printData() {
-  for (uint8_t i = 0; i < row; i++) //整理したデータをタブで区切って表示
+  for (int i = 0; i < row; i++) //整理したデータをタブで区切って表示
   {
     Serial.println(String(rpm1[i]) + '\t' + String(inj1[i]) + '\t' + String(ign1[i]));
   }
@@ -286,17 +286,19 @@ void setup() {
   digitalWrite(STR_OUT, HIGH);
   digitalWrite(OUT_A3, HIGH);
 
+  /*
   delay(100);
-  digitalWrite(INJ_OUT, LOW);  // インジェクタON
+  digitalWrite(INJ_OUT, LOW);   // インジェクタON
   delay(100);
   digitalWrite(INJ_OUT, HIGH);  // インジェクタOFF
-  digitalWrite(IGN_OUT, LOW);  // イグニッションON
+  digitalWrite(IGN_OUT, LOW);   // イグニッションON
   delay(100);
   digitalWrite(IGN_OUT, HIGH);  // イグニッションOFF
-  digitalWrite(STR_OUT, LOW);  // スタータON
+  digitalWrite(STR_OUT, LOW);   // スタータON
   delay(100);
   digitalWrite(STR_OUT, HIGH);  // スタータOFF
-  digitalWrite(OUT_A3, LOW);  // OUT_A3 ON
+  */
+  digitalWrite(OUT_A3, LOW);    // OUT_A3 ON
 
   if (digitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
     delay(3000);
