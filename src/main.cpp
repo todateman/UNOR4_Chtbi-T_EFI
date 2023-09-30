@@ -313,14 +313,20 @@ void setup() {
     }
     Serial.println(F("initialization done."));
 
-    while(1){
-      sprintf_P(fileName, PSTR("LOG%04d.CSV"), fileNum);
+    if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
+      Serial.print("LOG:ON\tfilename:");
+      while(1){      
+        sprintf_P(fileName, PSTR("LOG%04d.CSV"), fileNum);
 
-      if(!SD.exists(fileName)) {
-        Serial.println(fileName);
-        break;
+        if(!SD.exists(fileName)) {
+          Serial.println(fileName);
+          break;
+        }
+        fileNum++;
       }
-      fileNum++;
+    }
+    else{  // 7ピンがOFFの場合
+      Serial.println("LOG:OFF");
     }
     
     // CSVファイルを読み込んで配列に代入する
