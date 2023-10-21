@@ -37,7 +37,7 @@ uint8_t IGN_OUT = A1; // イグニッション出力
 uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3; // スタータ出力
 uint8_t NE_COUNT = 0;  // クランクパルス数
-uint8_t NE_COUNT_MAX = 36;  // クランク1回転分のクランクパルス
+uint8_t NE_COUNT_MAX = 50;  // クランク1回転分のクランクパルス
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
