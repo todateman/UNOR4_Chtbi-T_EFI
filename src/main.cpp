@@ -2,10 +2,13 @@
 // ECU Shield は入出力がHIGH/LOWが反転しているので注意
 //#define CSV_PARSER_DONT_IMPORT_SD
 #include <Arduino.h>
+#include <SoftwareSerial.h>
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
 #include "fastestDigitalRW.hpp"
+
+SoftwareSerial SoftSerial(0, 1); // Rx, Tx  ※ハードウェアシリアルだとフリーズする
 
 uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
@@ -17,7 +20,6 @@ volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
 volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
-volatile unsigned long timeNow = 0;  // 現在の時間
 volatile float tachoRpm = 0;  // エンジンの回転数[rpm]
 volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
 volatile int8_t  IGN_CA = 0;  // 点火時期[CA]
@@ -26,7 +28,7 @@ volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 
-uint8_t NE_IN = 2; // クランク角センサ入力・外部割込み
+//uint8_t NE_IN = 2; // クランク角センサ入力・外部割込み
 uint8_t G_IN = 3; // カム角センサ入力・外部割込み
 uint8_t STR_IN = 5; // スタータボタン入力
 uint8_t IN_6 = 6; // 拡張入力
@@ -36,9 +38,8 @@ uint8_t INJ_OUT = A0; // インジェクタ出力
 uint8_t IGN_OUT = A1; // イグニッション出力
 uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3; // スタータ出力
-uint8_t NE_COUNT = 0;  // クランクパルス数
-uint8_t NE_COUNT_MAX = 50;  // クランク1回転分のクランクパルス
-int8_t  TDC_P = 0;  //クランクパルスセンサと上死点の位相差を補正
+unsigned long usecperdig = 0;  // クランク1°当たりの時間(usec)
+int8_t  TDC_P = 0;  //カム角センサと上死点の位相差を補正
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
@@ -140,12 +141,6 @@ void INJ_IGN_SD() {
   }
 }
 
-// クランクパルスカウント
-void NE_PULSE() {
-  NE_COUNT++;
-  //Serial.println(NE_COUNT);
-}
-
 // 回転数判定・点火制御
 void tachometer() {
   char Info_b[110];
@@ -155,7 +150,7 @@ void tachometer() {
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(1回転当たりの時間)を計算
   tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-  NE_COUNT = 0;                           // クランクパルス数を初期化
+  usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   
   if (SDMAP) {     // SD内の点火MAPが使用できる場合
     INJ_IGN_SD();  // SDから読んだ点火MAP
@@ -164,7 +159,8 @@ void tachometer() {
     INJ_IGN();     // 本コード内の点火MAP
   }
 
-  if (INJ_time > 0) {
+  //if (INJ_time > 0) {
+  if (tachoRpm <= 6000) {
     INJ_Status = 1;
   }
   else {
@@ -179,11 +175,12 @@ void tachometer() {
 
   dtostrf(tachoRpm, 6, 2, Rpm_b);
   dtostrf(INJ_time, 3, 2, INJ_b);
-  sprintf_P(Info_b, PSTR("%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA]"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, INJ_b, IGN_CA);
-  Serial.print(Info_b);
+  sprintf_P(Info_b, PSTR("%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\t1dig: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA]"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, usecperdig, INJ_b, IGN_CA);
+  Serial.print(F(Info_b));
+  SoftSerial.println(F(Rpm_b));  // UARTで回転数を出力
   sprintf_P(Info_b, PSTR("\tINJON: %lu[us]\tINJOFF: %lu[us]\tIGNON: %lu[us]\tIGNOFF: %lu[us]"), timeNow_INJ_ON, timeNow_INJ_OFF, timeNow_IGN_ON, timeNow_IGN_OFF);
-  Serial.println(Info_b);
-
+  Serial.println(F(Info_b));
+  
   if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
     if(!SD.exists(fileName)) {  // ログファイルが無かったらヘッダを書き込む
       logFile = SD.open(fileName, FILE_WRITE);
@@ -272,7 +269,8 @@ void printData() {
 
 void setup() {
   Serial.begin(115200);  // シリアル通信を開始
-  pinMode(NE_IN, INPUT_PULLUP);
+  SoftSerial.begin(115200, SERIAL_8E2);
+  //pinMode(NE_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
   pinMode(LOG_IN, INPUT_PULLUP);
@@ -343,14 +341,12 @@ void setup() {
     Serial.print(F("Don't use SD card"));
   }
   
-  attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
+  //attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
   attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
 
 }
 
 void loop() {
-  timeNow = micros();  // 現在の時刻を記録
-
   // スタータボタンを押したとき
   if (digitalRead(STR_IN) == LOW){
     //digitalWrite(STR_OUT, LOW);  // スタータON
@@ -364,8 +360,8 @@ void loop() {
 
   // 噴射OFFステータス時
   if ( INJ_Status == 1 && !INJ_His ) {
-    if ( NE_COUNT == ( NE_COUNT_MAX * 0 ) + TDC_P + 15  ){  // クランク角CAが上死点+15パルス以上進んだら
-      timeNow_INJ_ON = timeNow;     // 噴射開始時の時刻を記録
+    if ( micros() - tachoAfter >= usecperdig * (TDC_P + 60) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
+      timeNow_INJ_ON = micros();     // 噴射開始時の時刻を記録
       INJ_His = true;               // 噴射履歴あり
       //digitalWrite(INJ_OUT, LOW);   // 噴射ON
       fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
@@ -376,8 +372,8 @@ void loop() {
 
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
-    if ( timeNow - timeNow_INJ_ON >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
-      timeNow_INJ_OFF = timeNow;    // 噴射終了時の時刻を記録
+    if ( micros() - timeNow_INJ_ON >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
+      timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
@@ -387,8 +383,8 @@ void loop() {
   
   //点火OFFステータス時
   if ( IGN_Status == 1 && !IGN_His )  {  
-    if ( NE_COUNT == ( NE_COUNT_MAX * 1 ) + TDC_P - IGN_CA / (360 / NE_COUNT_MAX) ){  // クランク角CAが進角角度以上進んだら
-      timeNow_IGN_ON = timeNow;     // 点火開始時の時刻を記録
+    if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
+      timeNow_IGN_ON = micros();     // 点火開始時の時刻を記録
       IGN_His = true;               // 点火履歴あり
       //digitalWrite(IGN_OUT, LOW);   // 点火ON
       fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
@@ -399,8 +395,8 @@ void loop() {
 
   // 点火ONステータス時
   if ( IGN_Status == 2 ) {
-    if ( timeNow - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
-      timeNow_IGN_OFF = timeNow;    // 点火終了時の時刻を記録
+    if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
+      timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
       IGN_Status = 1;               // 点火無効ステータス
