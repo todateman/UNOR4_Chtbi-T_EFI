@@ -20,7 +20,7 @@ volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow = 0;  // 現在の時間
 volatile float tachoRpm = 0;  // エンジンの回転数[rpm]
 volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
-volatile uint8_t IGN_CA = 0;  // 点火時期[CA]
+volatile int8_t  IGN_CA = 0;  // 点火時期[CA]
 volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
@@ -38,6 +38,7 @@ uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3; // スタータ出力
 uint8_t NE_COUNT = 0;  // クランクパルス数
 uint8_t NE_COUNT_MAX = 50;  // クランク1回転分のクランクパルス
+int8_t  TDC_P = 0;  //クランクパルスセンサと上死点の位相差を補正
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
@@ -58,59 +59,59 @@ void INJ_IGN() {
     IGN_CA = 0;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 1.1;
+    INJ_time = 7.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 1.1;
+    INJ_time = 7.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 1.1;
+    INJ_time = 7.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 1.1;
+    INJ_time = 7.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 1.15;
+    INJ_time = 7.5;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 1.0;
+    INJ_time = 7.0;
     IGN_CA = 5;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 0.8;
+    INJ_time = 5.0;
     IGN_CA = 10;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 15;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 20;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 25;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 30;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 30;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 30;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 0.6;
+    INJ_time = 2.0;
     IGN_CA = 30;
   }
   else {
@@ -118,7 +119,7 @@ void INJ_IGN() {
     IGN_CA = 0;
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 1.3;
+    INJ_time = 10.0;
     IGN_CA = 0;
   }
 }
@@ -134,7 +135,7 @@ void INJ_IGN_SD() {
     }
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 1.3;
+    INJ_time = 10.0;
     IGN_CA = 0;
   }
 }
@@ -301,7 +302,7 @@ void setup() {
   digitalWrite(OUT_A3, LOW);    // OUT_A3 ON
 
   if (digitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
-    delay(3000);
+    delay(100);
     digitalWrite(OUT_A3, HIGH);  // OUT_A3 OFF
 
     Serial.print(F("Initializing SD card..."));
@@ -342,8 +343,8 @@ void setup() {
     Serial.print(F("Don't use SD card"));
   }
   
-  attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   RISING); // 外部割り込み（NE_IN）
-  attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, RISING); // 外部割り込み（G_IN）
+  attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
+  attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
 
 }
 
@@ -352,16 +353,18 @@ void loop() {
 
   // スタータボタンを押したとき
   if (digitalRead(STR_IN) == LOW){
-    digitalWrite(STR_OUT, LOW);  // スタータON
-    Serial.println("STR_ON");
+    //digitalWrite(STR_OUT, LOW);  // スタータON
+    fastestDigitalWrite(STR_OUT, LOW);  // スタータON
+    //Serial.println("STR_ON");
   }
   else {
-    digitalWrite(STR_OUT, HIGH);  // スタータOFF
+    //digitalWrite(STR_OUT, HIGH);  // スタータOFF
+    fastestDigitalWrite(STR_OUT, HIGH);  // スタータOFF
   }
 
   // 噴射OFFステータス時
   if ( INJ_Status == 1 && !INJ_His ) {
-    if ( NE_COUNT == NE_COUNT_MAX ){  // クランク角CAが点火基準位相から360以上進んだら
+    if ( NE_COUNT == ( NE_COUNT_MAX * 0 ) + TDC_P + 15  ){  // クランク角CAが上死点+15パルス以上進んだら
       timeNow_INJ_ON = timeNow;     // 噴射開始時の時刻を記録
       INJ_His = true;               // 噴射履歴あり
       //digitalWrite(INJ_OUT, LOW);   // 噴射ON
@@ -384,7 +387,7 @@ void loop() {
   
   //点火OFFステータス時
   if ( IGN_Status == 1 && !IGN_His )  {  
-    if ( NE_COUNT == ( NE_COUNT_MAX * 2 ) - IGN_CA / (360 / NE_COUNT_MAX) ){  // クランク角CAが進角角度以上進んだら
+    if ( NE_COUNT == ( NE_COUNT_MAX * 1 ) + TDC_P - IGN_CA / (360 / NE_COUNT_MAX) ){  // クランク角CAが進角角度以上進んだら
       timeNow_IGN_ON = timeNow;     // 点火開始時の時刻を記録
       IGN_His = true;               // 点火履歴あり
       //digitalWrite(IGN_OUT, LOW);   // 点火ON
@@ -396,7 +399,7 @@ void loop() {
 
   // 点火ONステータス時
   if ( IGN_Status == 2 ) {
-    if ( timeNow - timeNow_IGN_ON >= 1000){  // 点火維持時間(1000us)が経過したら
+    if ( timeNow - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
       timeNow_IGN_OFF = timeNow;    // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
