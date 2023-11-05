@@ -269,7 +269,7 @@ void printData() {
 
 void setup() {
   Serial.begin(115200);  // シリアル通信を開始
-  SoftSerial.begin(115200, SERIAL_8E2);
+  SoftSerial.begin(9600);
   //pinMode(NE_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
