@@ -73,47 +73,47 @@ void INJ_IGN() {
   }
   else if (tachoRpm < 2000) {
     INJ_time = 7.0;
-    IGN_CA = 10;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 2400) {
     INJ_time = 7.0;
-    IGN_CA = 10;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 2800) {
     INJ_time = 6.0;
-    IGN_CA = 13;
+    IGN_CA = 23;
   }
   else if (tachoRpm < 3200) {
     INJ_time = 4.0;
-    IGN_CA = 16;
+    IGN_CA = 26;
   }
   else if (tachoRpm < 3600) {
     INJ_time = 4.0;
-    IGN_CA = 19;
+    IGN_CA = 29;
   }
   else if (tachoRpm < 4000) {
     INJ_time = 4.0;
-    IGN_CA = 22;
+    IGN_CA = 32;
   }
   else if (tachoRpm < 4400) {
     INJ_time = 4.0;
-    IGN_CA = 25;
+    IGN_CA = 35;
   }
   else if (tachoRpm < 4800) {
     INJ_time = 4.0;
-    IGN_CA = 27;
+    IGN_CA = 37;
   }
   else if (tachoRpm < 5200) {
     INJ_time = 4.0;
-    IGN_CA = 30;
+    IGN_CA = 40;
   }
   else if (tachoRpm < 5600) {
     INJ_time = 4.0;
-    IGN_CA = 30;
+    IGN_CA = 40;
   }
   else if (tachoRpm < 6000) {
     INJ_time = 4.0;
-    IGN_CA = 30;
+    IGN_CA = 40;
   }
   else {
     INJ_time = 0;
@@ -164,8 +164,6 @@ void tachometer() {
   }
 
   INJ_Status = 0;
-  timeNow_INJ_ON = NULL;
-  timeNow_INJ_OFF = NULL;
 
   //INJ_Status = 1;              // 噴射ステータスOFF
   //IGN_Status = 1;              // 点火ステータスOFF
@@ -175,10 +173,10 @@ void tachometer() {
   dtostrf(tachoRpm, 6, 2, Rpm_b);
   dtostrf(INJ_time, 3, 2, INJ_b);
   sprintf_P(Info_b, PSTR("%s[rpm]\tBefore: %lu[us]\tAfter: %lu[us]\tWidth: %lu[us]\t1dig: %lu[us]\tINJ: %s[ms]\tIGN: %d[CA]"), Rpm_b, tachoBefore, tachoAfter, tachoWidth, usecperdig, INJ_b, IGN_CA);
-  Serial.print(F(Info_b));
-  SoftSerial.println(F(Rpm_b));  // UARTで回転数を出力
+  Serial.print(Info_b);
+  SoftSerial.println(Rpm_b);  // UARTで回転数を出力
   sprintf_P(Info_b, PSTR("\tINJON: %lu[us]\tINJOFF: %lu[us]\tIGNON: %lu[us]\tIGNOFF: %lu[us]"), timeNow_INJ_ON, timeNow_INJ_OFF, timeNow_IGN_ON, timeNow_IGN_OFF);
-  Serial.println(F(Info_b));
+  Serial.println(Info_b);
   
   if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
     if(!SD.exists(fileName)) {  // ログファイルが無かったらヘッダを書き込む
