@@ -56,64 +56,64 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 5.0;
+    INJ_time = 4.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 5.0;
+    INJ_time = 4.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 5.0;
+    INJ_time = 4.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 5.0;
+    INJ_time = 4.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 5.0;
+    INJ_time = 4.0;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 5.5;
-    IGN_CA = 10;
+    INJ_time = 4.5;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 5.0;
-    IGN_CA = 15;
+    INJ_time = 4.0;
+    IGN_CA = 40;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 3.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 50;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 3.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 2.0;
-    IGN_CA = 20;
+    INJ_time = 4.0;
+    IGN_CA = 60;
   }
   else {
     INJ_time = 0;
