@@ -39,7 +39,7 @@ uint8_t IGN_OUT = A1; // イグニッション出力
 uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3;  // スタータ出力
 unsigned long usecperdig = 0;  // クランク1°当たりの時間(usec)
-int8_t  TDC_P = 0;    //カム角センサと上死点の位相差を補正
+int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
@@ -56,64 +56,64 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 7.0;
-    IGN_CA = 10;
+    INJ_time = 5.0;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 7.0;
-    IGN_CA = 10;
+    INJ_time = 5.0;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 7.0;
-    IGN_CA = 10;
+    INJ_time = 5.0;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 7.0;
-    IGN_CA = 10;
+    INJ_time = 5.0;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 7.0;
-    IGN_CA = 20;
+    INJ_time = 5.0;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 7.0;
-    IGN_CA = 20;
+    INJ_time = 5.5;
+    IGN_CA = 10;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 6.0;
-    IGN_CA = 23;
+    INJ_time = 5.0;
+    IGN_CA = 15;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 4.0;
-    IGN_CA = 26;
+    INJ_time = 3.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 4.0;
-    IGN_CA = 29;
+    INJ_time = 3.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 4.0;
-    IGN_CA = 32;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 4.0;
-    IGN_CA = 35;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 4.0;
-    IGN_CA = 37;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 4.0;
-    IGN_CA = 40;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 4.0;
-    IGN_CA = 40;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 4.0;
-    IGN_CA = 40;
+    INJ_time = 2.0;
+    IGN_CA = 20;
   }
   else {
     INJ_time = 0;
@@ -121,7 +121,7 @@ void INJ_IGN() {
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 10.0;
-    IGN_CA = 0.0;
+    IGN_CA = 0;
   }
 }
 
@@ -137,11 +137,11 @@ void INJ_IGN_SD() {
   }
   if (tachoRpm >= rpm1[row]){       // MAP以上の回転数(オーバーレブ)の場合
     INJ_time = 0.0;
-    IGN_CA = 0.0;
+    IGN_CA = 0;
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 10.0;
-    IGN_CA = -10.0;
+    IGN_CA = 0;
   }
 }
 
@@ -163,8 +163,15 @@ void tachometer() {
     INJ_IGN();     // 本コード内の点火MAP
   }
 
-  INJ_Status = 0;
-
+  //if (INJ_time > 0) {
+  if (tachoRpm <= 6000) {
+    INJ_Status = 1;
+  }
+  else {
+    INJ_Status = 0;
+    timeNow_INJ_ON = NULL;
+    timeNow_INJ_OFF = NULL;
+  }
   //INJ_Status = 1;              // 噴射ステータスOFF
   //IGN_Status = 1;              // 点火ステータスOFF
   INJ_His = false;               // 噴射履歴をリセット
@@ -357,7 +364,7 @@ void loop() {
 
   // 噴射OFFステータス時
   if ( INJ_Status == 1 && !INJ_His ) {
-    if ( micros() - tachoAfter >= usecperdig * (TDC_P + 40) ){  // 上死点から[回転数に応じた1°当たりの時間]*40°以上経過したら
+    if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
       timeNow_INJ_ON = micros();     // 噴射開始時の時刻を記録
       INJ_His = true;               // 噴射履歴あり
       //digitalWrite(INJ_OUT, LOW);   // 噴射ON
