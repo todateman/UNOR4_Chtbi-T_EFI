@@ -165,10 +165,12 @@ void SendStatus() {
   if(OLED) {  // OLEDが接続されていれば
     u8x8.setCursor(4, 0);
     u8x8.print(tachoRpm);
+    u8x8.print("  ");
     u8x8.setCursor(4, 1);
     u8x8.print(INJ_time,1);
     u8x8.setCursor(4, 2);
     u8x8.print(IGN_CA);
+    u8x8.print(" ");
   }
 
   /*
