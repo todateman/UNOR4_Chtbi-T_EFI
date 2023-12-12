@@ -2,13 +2,11 @@
 // ECU Shield は入出力がHIGH/LOWが反転しているので注意
 //#define CSV_PARSER_DONT_IMPORT_SD
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
 #include "fastestDigitalRW.hpp"
-
-SoftwareSerial SoftSerial(0, 1); // Rx, Tx  ※ハードウェアシリアルだとフリーズする
+#include "AGTimerR4.h"
 
 uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
@@ -20,7 +18,7 @@ volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
 volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
-volatile float tachoRpm = 0;  // エンジンの回転数[rpm]
+volatile uint16_t tachoRpm = 0;  // エンジンの回転数[rpm]
 volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
 volatile int8_t  IGN_CA = 0;  // 点火時期[CA]
 volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
@@ -145,37 +143,19 @@ void INJ_IGN_SD() {
   }
 }
 
-// 回転数判定・点火制御
-void tachometer() {
+
+void SendStatus() {
+  Serial.print(tachoRpm);
+  Serial.print("\t");
+  Serial.print(INJ_time,1);
+  Serial.print("\t");
+  Serial.println(IGN_CA);
+  Serial1.println(tachoRpm);
+
+  /*
   char Info_b[110];
   char Rpm_b[8];
   char INJ_b[5];
-
-  tachoAfter = micros();  // 現在の時刻を記録
-  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間)を計算
-  tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-  usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
-  
-  if (SDMAP) {     // SD内の点火MAPが使用できる場合
-    INJ_IGN_SD();  // SDから読んだ点火MAP
-  }
-  else {
-    INJ_IGN();     // 本コード内の点火MAP
-  }
-
-  //if (INJ_time > 0) {
-  if (tachoRpm <= 6000) {
-    INJ_Status = 1;
-  }
-  else {
-    INJ_Status = 0;
-    timeNow_INJ_ON = NULL;
-    timeNow_INJ_OFF = NULL;
-  }
-  //INJ_Status = 1;              // 噴射ステータスOFF
-  //IGN_Status = 1;              // 点火ステータスOFF
-  INJ_His = false;               // 噴射履歴をリセット
-  IGN_His = false;               // 点火履歴をリセット
 
   dtostrf(tachoRpm, 6, 2, Rpm_b);
   dtostrf(INJ_time, 3, 2, INJ_b);
@@ -185,7 +165,7 @@ void tachometer() {
   sprintf_P(Info_b, PSTR("\tINJON: %lu[us]\tINJOFF: %lu[us]\tIGNON: %lu[us]\tIGNOFF: %lu[us]"), timeNow_INJ_ON, timeNow_INJ_OFF, timeNow_IGN_ON, timeNow_IGN_OFF);
   Serial.println(Info_b);
   
-  if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
+    if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
     if(!SD.exists(fileName)) {  // ログファイルが無かったらヘッダを書き込む
       logFile = SD.open(fileName, FILE_WRITE);
       if (logFile){
@@ -209,7 +189,42 @@ void tachometer() {
     }
     logFile.close();
   }
+  */
+}
+
+// 回転数判定・点火制御
+void tachometer() {
+  char Info_b[110];
+  char Rpm_b[8];
+  char INJ_b[5];
+
+  tachoAfter = micros();  // 現在の時刻を記録
+  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間)を計算
+  tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
+  usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   
+  if (SDMAP) {     // SD内の点火MAPが使用できる場合
+    INJ_IGN_SD();  // SDから読んだ点火MAP
+  }
+  else {
+    INJ_IGN();     // 本コード内の点火MAP
+  }
+
+  //if (INJ_time > 0) {
+  if (tachoRpm <= 6000) {
+    INJ_Status = 1;  // 噴射OFF
+    IGN_Status = 1;  // 点火OFF
+  }
+  else {
+    INJ_Status = 0;  // 噴射無効
+    IGN_Status = 0;  // 点火無効
+    timeNow_INJ_ON = NULL;
+    timeNow_INJ_OFF = NULL;
+  }
+  //INJ_Status = 1;              // 噴射ステータスOFF
+  //IGN_Status = 1;              // 点火ステータスOFF
+  INJ_His = false;               // 噴射履歴をリセット
+  IGN_His = false;               // 点火履歴をリセット
   
   tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
   tachoWidth_b = tachoWidth;
@@ -273,7 +288,7 @@ void printData() {
 
 void setup() {
   Serial.begin(115200);  // シリアル通信を開始
-  SoftSerial.begin(9600);
+  Serial1.begin(115200);  // シリアル通信を開始
   //pinMode(NE_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
@@ -348,7 +363,11 @@ void setup() {
   //attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
   attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
 
+  AGTimer.init(1000000, SendStatus); //  1sec周期でステータスを表示
+  AGTimer.start();
+
 }
+
 
 void loop() {
   // スタータボタンを押したとき
@@ -406,7 +425,7 @@ void loop() {
       IGN_Status = 1;               // 点火無効ステータス
       //Serial.println("IGN_OFF");
     }
-  } 
+  }
 
-  delayMicroseconds(10);  // 10us停止
+  delayMicroseconds(24);  // 24us停止
 }
