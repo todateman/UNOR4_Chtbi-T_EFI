@@ -7,6 +7,11 @@
 #include "SD.h"
 #include "fastestDigitalRW.hpp"
 #include "AGTimerR4.h"
+#include <Wire.h>
+#include <U8x8lib.h>
+
+//U8X8_SH1107_64X128_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 1.3"
+U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
 
 uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
@@ -25,6 +30,7 @@ volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
+bool OLED = false;                // OLED有効/無効
 
 //uint8_t NE_IN = 2;  // クランク角センサ入力・外部割込み
 uint8_t G_IN = 3;     // カム角センサ入力・外部割込み
@@ -145,12 +151,25 @@ void INJ_IGN_SD() {
 
 
 void SendStatus() {
-  Serial.print(tachoRpm);
-  Serial.print("\t");
-  Serial.print(INJ_time,1);
-  Serial.print("\t");
-  Serial.println(IGN_CA);
+  if (Serial){  // USBシリアルが有効なら
+    Serial.print(tachoRpm);
+    Serial.print("\t");
+    Serial.print(INJ_time,1);
+    Serial.print("\t");
+    Serial.println(IGN_CA);
+  }
+  if (Serial1){  // 外部シリアルが有効なら
   Serial1.println(tachoRpm);
+  }
+
+  if(OLED) {  // OLEDが接続されていれば
+    u8x8.setCursor(4, 0);
+    u8x8.print(tachoRpm);
+    u8x8.setCursor(4, 1);
+    u8x8.print(INJ_time,1);
+    u8x8.setCursor(4, 2);
+    u8x8.print(IGN_CA);
+  }
 
   /*
   char Info_b[110];
@@ -289,6 +308,9 @@ void printData() {
 void setup() {
   Serial.begin(115200);  // シリアル通信を開始
   Serial1.begin(115200);  // シリアル通信を開始
+
+  Wire.begin();
+
   //pinMode(NE_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
@@ -359,6 +381,25 @@ void setup() {
     digitalWrite(OUT_A3, HIGH);  // OUT_A3 OFF
     Serial.print(F("Don't use SD card"));
   }
+
+  // OLEDの接続確認
+  Wire.beginTransmission(0x3C);
+  if (Wire.endTransmission() == 0) {
+    OLED = true;
+  }
+  Wire.end();
+
+  if(OLED) {  // OLEDが接続されていれば
+    u8x8.begin();
+    u8x8.setPowerSave(0);
+    u8x8.setFont(u8x8_font_chroma48medium8_r);
+    //u8x8.setFont(u8x8_font_profont29_2x3_r);
+    u8x8.setInverseFont(0);
+    u8x8.drawString(0,0,"RPM:");
+    u8x8.drawString(0,1,"INJ:");
+    u8x8.drawString(0,2,"IGN:");
+  }
+
   
   //attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
   attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
