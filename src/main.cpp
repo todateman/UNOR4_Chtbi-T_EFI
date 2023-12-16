@@ -89,35 +89,35 @@ void INJ_IGN() {
   }
   else if (tachoRpm < 3200) {
     INJ_time = 4.0;
-    IGN_CA = 50;
+    IGN_CA = 55;
   }
   else if (tachoRpm < 3600) {
     INJ_time = 4.0;
-    IGN_CA = 60;
+    IGN_CA = 65;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 3.0;
+    IGN_CA = 65;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 3.0;
+    IGN_CA = 70;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 2.7;
+    IGN_CA = 75;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 2.5;
+    IGN_CA = 80;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 2.5;
+    IGN_CA = 80;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 4.0;
-    IGN_CA = 60;
+    INJ_time = 2.5;
+    IGN_CA = 80;
   }
   else {
     INJ_time = 0;
