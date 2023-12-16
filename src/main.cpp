@@ -25,11 +25,11 @@ volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
 volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
-volatile unsigned long distancemm = 0;        // 走行距離積算(mm)
+volatile unsigned long distancemm = 0;      // 走行距離積算(mm)
 volatile uint16_t distance = 0;   // 走行距離積算(m)
 volatile uint8_t speed = 0;       // 速度(km/s)
 volatile uint16_t tachoRpm = 0;   // エンジンの回転数[rpm]
-volatile float INJ_time = 0;      // インジェクタ噴射時間[ms]
+volatile uint8_t INJ_time = 0;    // インジェクタ噴射時間[*0.1ms] 速度向上のため10倍して表記(1.2ms->12)
 volatile int8_t  IGN_CA = 0;      // 点火時期[CA]
 volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
@@ -49,7 +49,7 @@ uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3;  // スタータ出力
 unsigned long usecperdig = 0;  // クランク1°当たりの時間(usec)
 int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
-uint16_t perimeter = 1433;  // 車軸1回転当たりの周長(mm}
+uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm}
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
@@ -58,71 +58,71 @@ char fileName[16];       // ファイル名
 uint8_t fileNum = 0;         // ファイル連番
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
 bool SDMAP = false;
-float rpm1[20]; //要素記憶用の配列を作成
-float inj1[20];
-uint8_t ign1[20];
+uint16_t rpm1[20]; //要素記憶用の配列を作成
+uint8_t inj1[20];
+int8_t  ign1[20];
 uint8_t row;
 
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 0;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 0;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 0;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 4.5;
+    INJ_time = 45;
     IGN_CA = 20;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 40;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 55;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 4.0;
+    INJ_time = 40;
     IGN_CA = 65;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 3.0;
+    INJ_time = 30;
     IGN_CA = 65;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 3.0;
+    INJ_time = 30;
     IGN_CA = 70;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 2.7;
+    INJ_time = 27;
     IGN_CA = 75;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 2.5;
+    INJ_time = 25;
     IGN_CA = 80;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 2.5;
+    INJ_time = 25;
     IGN_CA = 80;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 2.5;
+    INJ_time = 25;
     IGN_CA = 80;
   }
   else {
@@ -130,7 +130,7 @@ void INJ_IGN() {
     IGN_CA = 0;
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 10.0;
+    INJ_time = 50;
     IGN_CA = 0;
   }
 }
@@ -146,11 +146,11 @@ void INJ_IGN_SD() {
     }
   }
   if (tachoRpm >= rpm1[row]){       // MAP以上の回転数(オーバーレブ)の場合
-    INJ_time = 0.0;
+    INJ_time = 0;
     IGN_CA = 0;
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 10.0;
+    INJ_time = 50;
     IGN_CA = 0;
   }
 }
@@ -158,10 +158,11 @@ void INJ_IGN_SD() {
 
 // ステータス出力
 void SendStatus() {
+  float INJ_timems = INJ_time * 0.1;
   if (Serial){  // USBシリアルが有効なら
     Serial.print(tachoRpm);
     Serial.print("\t");
-    Serial.print(INJ_time, 1);
+    Serial.print(INJ_timems, 1);
     Serial.print("\t");
     Serial.print(IGN_CA);
     Serial.print("\t");
@@ -182,7 +183,7 @@ void SendStatus() {
     u8x8.print(tachoRpm);
     u8x8.print("  ");
     u8x8.setCursor(4, 1);
-    u8x8.print(INJ_time, 1);
+    u8x8.print(INJ_timems, 1);
     u8x8.setCursor(13, 1);
     u8x8.print(IGN_CA);
     u8x8.print(" ");
@@ -242,7 +243,7 @@ void HW_PULSE() {
   speed = perimeter / speedWidth;  // 速度(mm/us = km/s)を計算
   speedBefore = speedAfter;  // 今回の値を前回の値に代入する
   distancemm = distancemm + perimeter;  //走行距離積算(mm)を計算
-  distance = distancemm / 1000;  //走行距離積算(m)を計算
+  distance = distancemm * 0.001;  //走行距離積算(m)を計算
 }
 
 // 回転数判定・点火制御
@@ -472,7 +473,7 @@ void loop() {
 
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
-    if ( micros() - timeNow_INJ_ON >= INJ_time * 1000 ){  // 噴射開始から噴射時間が経過したら
+    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
       timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
