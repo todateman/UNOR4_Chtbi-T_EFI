@@ -15,24 +15,29 @@ U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
 
 uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
-volatile unsigned long tachoBefore = 0;  // クランクセンサーの前回の反応時の時間
-volatile unsigned long tachoAfter = 0;  // クランクセンサーの今回の反応時の時間
-volatile unsigned long tachoWidth = 0;  // クランク一回転の時間　tachoAfter - tachoBefore
-volatile unsigned long tachoWidth_b = 0;  // 前回のクランク一回転の時間
+volatile unsigned long tachoBefore = 0;     // カム角センサーの前回の反応時の時間
+volatile unsigned long tachoAfter = 0;      // カム角センサーの今回の反応時の時間
+volatile unsigned long tachoWidth = 0;      // カム一回転の時間　tachoAfter - tachoBefore
+volatile unsigned long speedBefore = 0;     // 車軸パルスセンサーの前回の反応時の時間
+volatile unsigned long speedAfter = 0;      // 車軸パルスセンサーの今回の反応時の時間
+volatile unsigned long speedWidth = 0;      // 車軸一回転の時間　speedAfter - speedBefore
 volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
 volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
-volatile uint16_t tachoRpm = 0;  // エンジンの回転数[rpm]
-volatile float INJ_time = 0;  // インジェクタ噴射時間[ms]
-volatile int8_t  IGN_CA = 0;  // 点火時期[CA]
+volatile unsigned long distancemm = 0;        // 走行距離積算(mm)
+volatile uint16_t distance = 0;   // 走行距離積算(m)
+volatile uint8_t speed = 0;       // 速度(km/s)
+volatile uint16_t tachoRpm = 0;   // エンジンの回転数[rpm]
+volatile float INJ_time = 0;      // インジェクタ噴射時間[ms]
+volatile int8_t  IGN_CA = 0;      // 点火時期[CA]
 volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 bool OLED = false;                // OLED有効/無効
 
-//uint8_t NE_IN = 2;  // クランク角センサ入力・外部割込み
+uint8_t HW_IN = 2;    // 駆動軸パルスセンサ入力・外部割込み
 uint8_t G_IN = 3;     // カム角センサ入力・外部割込み
 uint8_t STR_IN = 5;   // スタータボタン入力
 uint8_t IN_6 = 6;     // 拡張入力
@@ -44,6 +49,7 @@ uint8_t STR_OUT = A2; // スタータ出力
 uint8_t OUT_A3 = A3;  // スタータ出力
 unsigned long usecperdig = 0;  // クランク1°当たりの時間(usec)
 int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
+uint16_t perimeter = 1433;  // 車軸1回転当たりの周長(mm}
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
@@ -150,16 +156,25 @@ void INJ_IGN_SD() {
 }
 
 
+// ステータス出力
 void SendStatus() {
   if (Serial){  // USBシリアルが有効なら
     Serial.print(tachoRpm);
     Serial.print("\t");
-    Serial.print(INJ_time,1);
+    Serial.print(INJ_time, 1);
     Serial.print("\t");
-    Serial.println(IGN_CA);
+    Serial.print(IGN_CA);
+    Serial.print("\t");
+    Serial.print(speed);
+    Serial.print("\t");
+    Serial.println(distance);
   }
   if (Serial1){  // 外部シリアルが有効なら
-  Serial1.println(tachoRpm);
+  Serial1.print(tachoRpm);
+  Serial1.print("\t");
+  Serial1.print(speed);
+  Serial1.print("\t");
+  Serial1.println(distance);
   }
 
   if(OLED) {  // OLEDが接続されていれば
@@ -167,9 +182,15 @@ void SendStatus() {
     u8x8.print(tachoRpm);
     u8x8.print("  ");
     u8x8.setCursor(4, 1);
-    u8x8.print(INJ_time,1);
-    u8x8.setCursor(4, 2);
+    u8x8.print(INJ_time, 1);
+    u8x8.setCursor(13, 1);
     u8x8.print(IGN_CA);
+    u8x8.print(" ");
+    u8x8.setCursor(4, 2);
+    u8x8.print(speed);
+    u8x8.print(" ");
+    u8x8.setCursor(12, 2);
+    u8x8.print(distance);
     u8x8.print(" ");
   }
 
@@ -213,6 +234,17 @@ void SendStatus() {
   */
 }
 
+
+// 車軸パルスから走行距離・速度を算出
+void HW_PULSE() {
+  speedAfter = micros();  // 現在の時刻を記録
+  speedWidth = speedAfter - speedBefore;  // 前回と今回の時間の差(車軸1回転当たりの時間 usec)を計算
+  speed = perimeter / speedWidth;  // 速度(mm/us = km/s)を計算
+  speedBefore = speedAfter;  // 今回の値を前回の値に代入する
+  distancemm = distancemm + perimeter;  //走行距離積算(mm)を計算
+  distance = distancemm / 1000;  //走行距離積算(m)を計算
+}
+
 // 回転数判定・点火制御
 void tachometer() {
   char Info_b[110];
@@ -220,7 +252,8 @@ void tachometer() {
   char INJ_b[5];
 
   tachoAfter = micros();  // 現在の時刻を記録
-  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間)を計算
+  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
+  tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
   tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
   usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   
@@ -247,8 +280,6 @@ void tachometer() {
   INJ_His = false;               // 噴射履歴をリセット
   IGN_His = false;               // 点火履歴をリセット
   
-  tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
-  tachoWidth_b = tachoWidth;
 }
 
 
@@ -313,7 +344,7 @@ void setup() {
 
   Wire.begin();
 
-  //pinMode(NE_IN, INPUT_PULLUP);
+  pinMode(HW_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
   pinMode(LOG_IN, INPUT_PULLUP);
@@ -396,14 +427,17 @@ void setup() {
     u8x8.setPowerSave(0);
     u8x8.setFont(u8x8_font_chroma48medium8_r);
     //u8x8.setFont(u8x8_font_profont29_2x3_r);
+    u8x8.setInverseFont(1);
+    u8x8.drawString(0, 0, "RPM:");
+    u8x8.drawString(0, 1, "INJ:");
+    u8x8.drawString(9, 1, "IGN:");
+    u8x8.drawString(0, 2, "SPD:");
+    u8x8.drawString(8, 2, "DIS:");
     u8x8.setInverseFont(0);
-    u8x8.drawString(0,0,"RPM:");
-    u8x8.drawString(0,1,"INJ:");
-    u8x8.drawString(0,2,"IGN:");
   }
 
   
-  //attachInterrupt(digitalPinToInterrupt(NE_IN), NE_PULSE,   FALLING); // 外部割り込み（NE_IN）
+  attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING); // 外部割り込み（HW_IN）
   attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
 
   AGTimer.init(1000000, SendStatus); //  1sec周期でステータスを表示
