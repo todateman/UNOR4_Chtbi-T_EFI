@@ -458,7 +458,7 @@ void loop() {
     Serial1.print(",");
     Serial1.print(distance);
     Serial1.print(",");
-    Serial1.print(gasml, 1);
+    Serial1.println(gasml, 1);
     Serial1.print(",");
     Serial1.println(dispergas, 1);
   }
@@ -486,7 +486,6 @@ void loop() {
   tachoRpm = 0;
   INJ_time = 0.0;
   IGN_CA = 0;
-  if (micros() - speedBefore > 3600 * perimeter){speed = 0;}  // 速度1km/h以下の時は速度を0にする 
 
   delay(500);  // 500ms停止
 }
