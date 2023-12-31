@@ -36,27 +36,26 @@ volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 bool OLED = false;                // OLED有効/無効
+bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
+bool Serial1_ON = true;           // Serial1(メーター・ロガーへのシリアル)有効/無効
 
-uint8_t HW_IN = 2;    // 駆動軸パルスセンサ入力・外部割込み
-uint8_t G_IN = 3;     // カム角センサ入力・外部割込み
-uint8_t STR_IN = 5;   // スタータボタン入力
-uint8_t IN_6 = 6;     // 拡張入力
-uint8_t LOG_IN = 7;   // ログのON/OFF
-uint8_t SD_IN = 9;    // microSD挿入チェック
-uint8_t INJ_OUT = A0; // インジェクタ出力
-uint8_t IGN_OUT = A1; // イグニッション出力
-uint8_t STR_OUT = A2; // スタータ出力
-uint8_t OUT_A3 = A3;  // 予備出力
-unsigned long usecperdig = 0;  // クランク1°当たりの時間(usec)
+uint8_t HW_IN = 2;      // 駆動軸パルスセンサ入力・外部割込み
+uint8_t G_IN = 3;       // カム角センサ入力・外部割込み
+uint8_t STR_IN = 5;     // スタータボタン入力
+uint8_t ENGOFF_IN = 6;  // キルスイッチ入力
+uint8_t RESET_IN = 7;   // 走行距離・燃費リセットボタン入力
+uint8_t SD_IN = 9;      // microSD挿入チェック
+uint8_t INJ_OUT = A0;   // インジェクタ出力
+uint8_t IGN_OUT = A1;   // イグニッション出力
+uint8_t STR_OUT = A2;   // スタータ出力
+uint8_t DISRESET_OUT = A3;      // リセット状態出力(リセットされていればOFF)
+unsigned long usecperdig = 0;   // クランク1°当たりの時間(usec)
 int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
 uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
 float gasml = 0.0;     // 積算燃料消費量(ml)
 
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
-File logFile;
-char fileName[16];       // ファイル名
-uint8_t fileNum = 0;         // ファイル連番
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
 bool SDMAP = false;
 uint16_t rpm1[20]; //要素記憶用の配列を作成
@@ -159,61 +158,63 @@ void INJ_IGN_SD() {
 
 // 燃料噴射・点火制御
 void Routine() {
-  // スタータボタンを押したとき
-  if (digitalRead(STR_IN) == LOW){
-    //digitalWrite(STR_OUT, LOW);  // スタータON
-    fastestDigitalWrite(STR_OUT, LOW);  // スタータON
-    //Serial.println("STR_ON");
-  }
-  else {
-    //digitalWrite(STR_OUT, HIGH);  // スタータOFF
-    fastestDigitalWrite(STR_OUT, HIGH);  // スタータOFF
-  }
-
-  // 噴射OFFステータス時
-  if ( INJ_Status == 1 && !INJ_His ) {
-    if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
-      timeNow_INJ_ON = micros();     // 噴射開始時の時刻を記録
-      INJ_His = true;               // 噴射履歴あり
-      //digitalWrite(INJ_OUT, LOW);   // 噴射ON
-      fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
-      INJ_Status = 2;               // 噴射ONステータス
-      //Serial.println("INJ_ON");
+  if (digitalRead(ENGOFF_IN) == HIGH){  // キルスイッチピン(6)がOFFの場合
+    // スタータボタンを押したとき
+    if (digitalRead(STR_IN) == LOW){
+      //digitalWrite(STR_OUT, LOW);  // スタータON
+      fastestDigitalWrite(STR_OUT, LOW);  // スタータON
+      //Serial.println("STR_ON");
     }
-  }
-
-  // 噴射ONステータス時
-  if ( INJ_Status == 2 ) {
-    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
-      timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
-      //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      INJ_Status = 1;               // 噴射無効ステータス
-      gasml += (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015;  // 燃料消費量(ml)を積算
-      //Serial.println("INJ_OFF");
+    else {
+      //digitalWrite(STR_OUT, HIGH);  // スタータOFF
+      fastestDigitalWrite(STR_OUT, HIGH);  // スタータOFF
     }
-  }
+
+    // 噴射OFFステータス時
+    if ( INJ_Status == 1 && !INJ_His ) {
+      if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
+        timeNow_INJ_ON = micros();     // 噴射開始時の時刻を記録
+        INJ_His = true;               // 噴射履歴あり
+        //digitalWrite(INJ_OUT, LOW);   // 噴射ON
+        fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+        INJ_Status = 2;               // 噴射ONステータス
+        //Serial.println("INJ_ON");
+      }
+    }
+
+    // 噴射ONステータス時
+    if ( INJ_Status == 2 ) {
+      if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
+        timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
+        //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+        fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+        INJ_Status = 1;               // 噴射無効ステータス
+        gasml += (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015;  // 燃料消費量(ml)を積算
+        //Serial.println("INJ_OFF");
+      }
+    }
   
-  //点火OFFステータス時
-  if ( IGN_Status == 1 && !IGN_His )  {  
-    if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
-      timeNow_IGN_ON = micros();     // 点火開始時の時刻を記録
-      IGN_His = true;               // 点火履歴あり
-      //digitalWrite(IGN_OUT, LOW);   // 点火ON
-      fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
-      IGN_Status = 2;               // 点火ONステータス
-      //Serial.println("IGN_ON");
+    //点火OFFステータス時
+    if ( IGN_Status == 1 && !IGN_His )  {  
+      if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
+        timeNow_IGN_ON = micros();     // 点火開始時の時刻を記録
+        IGN_His = true;               // 点火履歴あり
+        //digitalWrite(IGN_OUT, LOW);   // 点火ON
+        fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+        IGN_Status = 2;               // 点火ONステータス
+        //Serial.println("IGN_ON");
+      }
     }
-  }
 
-  // 点火ONステータス時
-  if ( IGN_Status == 2 ) {
-    if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
-      timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
-      //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      IGN_Status = 1;               // 点火無効ステータス
-      //Serial.println("IGN_OFF");
+    // 点火ONステータス時
+    if ( IGN_Status == 2 ) {
+      if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
+        timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
+        //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
+        fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
+        IGN_Status = 1;               // 点火無効ステータス
+        //Serial.println("IGN_OFF");
+      }
     }
   }
 }
@@ -331,17 +332,19 @@ void setup() {
   pinMode(HW_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
-  pinMode(LOG_IN, INPUT_PULLUP);
+  pinMode(ENGOFF_IN, INPUT_PULLUP);
+  pinMode(RESET_IN, INPUT_PULLUP);
   pinMode(SD_IN, INPUT_PULLUP);
   pinMode(INJ_OUT, OUTPUT);
   pinMode(IGN_OUT, OUTPUT);
   pinMode(STR_OUT, OUTPUT);
-  pinMode(OUT_A3, OUTPUT);
+  pinMode(DISRESET_OUT, OUTPUT);
 
+  // 出力オフ
   digitalWrite(INJ_OUT, HIGH);
   digitalWrite(IGN_OUT, HIGH);
   digitalWrite(STR_OUT, HIGH);
-  digitalWrite(OUT_A3, HIGH);
+  digitalWrite(DISRESET_OUT, HIGH);
 
   /*
   delay(100);
@@ -355,11 +358,11 @@ void setup() {
   delay(100);
   digitalWrite(STR_OUT, HIGH);  // スタータOFF
   */
-  digitalWrite(OUT_A3, LOW);    // OUT_A3 ON
+  digitalWrite(DISRESET_OUT, LOW);    // DISRESET_OUT ON
 
   if (digitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
     delay(100);
-    digitalWrite(OUT_A3, HIGH);  // OUT_A3 OFF
+    digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
 
     Serial.print(F("Initializing SD card..."));
     pinMode(chipSelect, OUTPUT);
@@ -370,22 +373,6 @@ void setup() {
     }
     Serial.println(F("initialization done."));
 
-    if (digitalRead(LOG_IN) == LOW){  // 7ピンがONの場合
-      Serial.print("LOG:ON\tfilename:");
-      while(1){      
-        sprintf_P(fileName, PSTR("LOG%04d.CSV"), fileNum);
-
-        if(!SD.exists(fileName)) {
-          Serial.println(fileName);
-          break;
-        }
-        fileNum++;
-      }
-    }
-    else{  // 7ピンがOFFの場合
-      Serial.println("LOG:OFF");
-    }
-    
     // CSVファイルを読み込んで配列に代入する
     parseCSV();
   
@@ -395,7 +382,7 @@ void setup() {
   }
   else {
     delay(100);
-    digitalWrite(OUT_A3, HIGH);  // OUT_A3 OFF
+    digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
     Serial.print(F("Don't use SD card"));
   }
 
@@ -434,9 +421,20 @@ void setup() {
 
 // ステータス出力
 void loop() {
-  float INJ_timems = INJ_time * 0.1;  // 燃料噴射時間をmsecに変換
-  float dispergas = distance  / gasml;  // 燃費(m/ml = km/l)を計算
-  if (Serial){  // USBシリアルが有効なら
+  if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
+    distance = 0;                             // 走行距離を0にする
+  }
+  if (distance == 0) {                        // 距離が0の場合
+    fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+  }
+  else  {                                     // 距離が0ではない場合
+    fastestDigitalWrite(DISRESET_OUT, LOW);   // リセット状態出力をONにする(リセット忘れ防止のため)
+  }
+
+  float INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
+  float dispergas = distance  / gasml;        // 燃費(m/ml = km/l)を計算
+
+  if (Serial_ON){                             // USBシリアルが有効なら
     Serial.print(tachoRpm);
     Serial.print("\t");
     Serial.print(INJ_timems, 1);
@@ -451,7 +449,7 @@ void loop() {
     Serial.print("\t");
     Serial.println(dispergas, 1);
   }
-  if (Serial1){  // 外部シリアルが有効なら
+  if (Serial1_ON){                             // 外部シリアルが有効なら
     Serial1.print(tachoRpm);
     Serial1.print(",");
     Serial1.print(speed);
@@ -463,7 +461,7 @@ void loop() {
     Serial1.println(dispergas, 1);
   }
 
-  if(OLED) {  // OLEDが接続されていれば
+  if(OLED) {                                  // OLEDが接続されていれば
     u8x8.setCursor(3, 0);
     u8x8.print(tachoRpm);
     u8x8.print("   ");
