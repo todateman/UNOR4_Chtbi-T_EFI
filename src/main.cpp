@@ -241,6 +241,10 @@ void Serialsend() {
   if (Serial1_ON){                             // 外部シリアルが有効なら
     Serial1.print(tachoRpm);
     Serial1.print(",");
+    Serial1.print(INJ_timems, 1);
+    Serial1.print(",");
+    Serial1.print(IGN_CA);
+    Serial1.print(",");
     Serial1.print(speed);
     Serial1.print(",");
     Serial1.print(distance);
