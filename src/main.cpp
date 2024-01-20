@@ -69,27 +69,27 @@ uint8_t row;
 void INJ_IGN() {
   if (tachoRpm < 400) {
     INJ_time = 40;
-    IGN_CA = 0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 800) {
     INJ_time = 40;
-    IGN_CA = 0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 1200) {
     INJ_time = 40;
-    IGN_CA = 0;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 1600) {
     INJ_time = 40;
-    IGN_CA = 0;
+    IGN_CA = 30;
   }
   else if (tachoRpm < 2000) {
     INJ_time = 40;
-    IGN_CA = 0;
+    IGN_CA = 30;
   }
   else if (tachoRpm < 2400) {
     INJ_time = 45;
-    IGN_CA = 20;
+    IGN_CA = 30;
   }
   else if (tachoRpm < 2800) {
     INJ_time = 40;
@@ -160,7 +160,7 @@ void INJ_IGN_SD() {
 
 // 燃料噴射・点火制御
 void Routine() {
-  if (digitalRead(ENGOFF_IN) == HIGH){  // キルスイッチピン(6)がOFFの場合
+  if (digitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
     // スタータボタンを押したとき
     if (digitalRead(STR_IN) == LOW){
       //digitalWrite(STR_OUT, LOW);  // スタータON
