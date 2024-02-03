@@ -55,7 +55,8 @@ uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
 float gasml = 0.0;      // 積算燃料消費量(ml)
 float INJ_timems = 0.0; // 燃焼噴射時間(msec)
 float dispergas = 0.0;  // 燃費(km/l)
-
+unsigned long starttime = 0;    // 走行開始時間(msec)
+uint16_t worktime = 0;          // 走行時間(sec)
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
@@ -236,7 +237,9 @@ void Serialsend() {
     Serial.print("\t");
     Serial.print(gasml, 1);
     Serial.print("\t");
-    Serial.println(dispergas, 1);
+    Serial.print(dispergas, 1);
+    Serial.print("\t");
+    Serial.println(worktime);
   }
   if (Serial1_ON){                             // 外部シリアルが有効なら
     Serial1.print(tachoRpm);
@@ -251,7 +254,9 @@ void Serialsend() {
     Serial1.print(",");
     Serial1.print(gasml, 1);
     Serial1.print(",");
-    Serial1.println(dispergas, 1);
+    Serial1.print(dispergas, 1);
+    Serial1.print(",");
+    Serial1.println(worktime);
   }
 
   if(OLED) {                                  // OLEDが接続されていれば
@@ -487,9 +492,15 @@ void loop() {
   }
   if (distance == 0) {                        // 距離が0の場合
     fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+    worktime = 0;                               // 走行時間を0にする
+    starttime = 0;                              // 走行開始時間を0にする
   }
   else  {                                     // 距離が0ではない場合
     fastestDigitalWrite(DISRESET_OUT, LOW);   // リセット状態出力をONにする(リセット忘れ防止のため)
+    if (starttime == 0) {                       // 走行時間が0の場合
+      starttime = millis();                     // 走行開始時間を現在の時間にする
+    }
+    worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
   }
 
   INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
