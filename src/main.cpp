@@ -479,6 +479,7 @@ void setup() {
 // ステータス出力
 void loop() {
   if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
+    distancemm = 0;                           // 走行距離を0にする
     distance = 0;                             // 走行距離を0にする
     fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
     Serialsend();                             // シリアル送信
