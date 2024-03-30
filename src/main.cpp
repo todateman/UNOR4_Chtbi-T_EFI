@@ -161,6 +161,29 @@ void INJ_IGN_SD() {
 
 // 燃料噴射・点火制御
 void Routine() {
+  // 噴射ONステータス時
+  if ( INJ_Status == 2 ) {
+    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
+      timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
+      //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+      fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+      INJ_Status = 1;               // 噴射無効ステータス
+      gasml += (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015;  // 燃料消費量(ml)を積算
+      //Serial.println("INJ_OFF");
+    }
+  }
+
+  // 点火ONステータス時
+  if ( IGN_Status == 2 ) {
+    if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
+      timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
+      //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
+      fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
+      IGN_Status = 1;               // 点火無効ステータス
+      //Serial.println("IGN_OFF");
+    }
+  }
+
   if (digitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
     // スタータボタンを押したとき
     if (digitalRead(STR_IN) == LOW){
@@ -185,17 +208,6 @@ void Routine() {
       }
     }
 
-    // 噴射ONステータス時
-    if ( INJ_Status == 2 ) {
-      if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
-        timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
-        //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-        fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-        INJ_Status = 1;               // 噴射無効ステータス
-        gasml += (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015;  // 燃料消費量(ml)を積算
-        //Serial.println("INJ_OFF");
-      }
-    }
   
     //点火OFFステータス時
     if ( IGN_Status == 1 && !IGN_His )  {  
@@ -209,16 +221,6 @@ void Routine() {
       }
     }
 
-    // 点火ONステータス時
-    if ( IGN_Status == 2 ) {
-      if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
-        timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
-        //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
-        fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
-        IGN_Status = 1;               // 点火無効ステータス
-        //Serial.println("IGN_OFF");
-      }
-    }
   }
 }
 
