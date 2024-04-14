@@ -296,10 +296,6 @@ void HW_PULSE() {
 
 // カム角センサーから回転数計算
 void tachometer() {
-  char Info_b[110];
-  char Rpm_b[8];
-  char INJ_b[5];
-
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
   tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
@@ -511,9 +507,12 @@ void loop() {
   // シリアル送信
   Serialsend();
 
-  tachoRpm = 0;
-  INJ_time = 0.0;
-  IGN_CA = 0;
+  if (micros() - tachoBefore >= 600 * 1000 ) {  // 100rpm以下(前回のカムパルスONから0.6sec以上経過)の場合
+    tachoRpm = 0;
+    INJ_time = 0.0;
+    IGN_CA = 0;
+  }
+
   if (micros() - speedBefore > 3600 * perimeter){speed = 0;}  // 速度1km/h以下の時は速度を0にする 
 
   delay(500);  // 500ms停止
