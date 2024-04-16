@@ -57,6 +57,7 @@ float INJ_timems = 0.0; // 燃焼噴射時間(msec)
 float dispergas = 0.0;  // 燃費(km/l)
 unsigned long starttime = 0;    // 走行開始時間(msec)
 uint16_t worktime = 0;          // 走行時間(sec)
+bool Launch = false;            // 走行開始状態
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
@@ -190,6 +191,7 @@ void Routine() {
       //digitalWrite(STR_OUT, LOW);  // スタータON
       fastestDigitalWrite(STR_OUT, LOW);  // スタータON
       //Serial.println("STR_ON");
+      Launch = true;                      // 走行開始ON
     }
     else {
       //digitalWrite(STR_OUT, HIGH);  // スタータOFF
@@ -485,20 +487,21 @@ void loop() {
     distancemm = 0;                           // 走行距離を0にする
     distance = 0;                             // 走行距離を0にする
     fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+    Launch = false;                           // 走行開始OFF
     Serialsend();                             // シリアル送信
     delay(1000);
   }
-  if (distance == 0) {                        // 距離が0の場合
-    fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-    worktime = 0;                               // 走行時間を0にする
-    starttime = 0;                              // 走行開始時間を0にする
-  }
-  else  {                                     // 距離が0ではない場合
-    fastestDigitalWrite(DISRESET_OUT, LOW);   // リセット状態出力をONにする(リセット忘れ防止のため)
+  if (Launch) {                               // 走行開始ONの場合
+    fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
     if (starttime == 0) {                       // 走行時間が0の場合
       starttime = millis();                     // 走行開始時間を現在の時間にする
     }
     worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
+  }
+  else {
+    fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+    worktime = 0;                               // 走行時間を0にする
+    starttime = 0;                              // 走行開始時間を0にする
   }
 
   INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
