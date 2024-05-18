@@ -95,48 +95,56 @@ void INJ_IGN() {
   }
   else if (tachoRpm < 2800) {
     INJ_time = 40;
-    //IGN_CA = 40;
-    IGN_CA = 35;
+    IGN_CA = 40;
+    //IGN_CA = 35;
   }
   else if (tachoRpm < 3200) {
     INJ_time = 40;
-    //IGN_CA = 55;
-    IGN_CA = 40;
+    IGN_CA = 55;
+    //IGN_CA = 40;
+    //IGN_CA = 65;
   }
   else if (tachoRpm < 3600) {
     INJ_time = 40;
-    //IGN_CA = 65;
-    IGN_CA = 45;
+    IGN_CA = 65;
+    //IGN_CA = 45;
+    //IGN_CA = 70;
   }
   else if (tachoRpm < 4000) {
     INJ_time = 30;
-    //IGN_CA = 65;
-    IGN_CA = 55;
+    IGN_CA = 70;
+    //IGN_CA = 55;
+    //IGN_CA = 75;
   }
   else if (tachoRpm < 4400) {
     INJ_time = 30;
     //IGN_CA = 70;
-    IGN_CA = 55;
+    //IGN_CA = 55;
+    IGN_CA = 85;
   }
   else if (tachoRpm < 4800) {
     INJ_time = 27;
     //IGN_CA = 75;
-    IGN_CA = 55;
+    //IGN_CA = 55;
+    IGN_CA = 90;
   }
   else if (tachoRpm < 5200) {
     INJ_time = 25;
     //IGN_CA = 80;
-    IGN_CA = 55;
+    //IGN_CA = 55;
+    IGN_CA = 90;
   }
   else if (tachoRpm < 5600) {
     INJ_time = 25;
     //IGN_CA = 80;
-    IGN_CA = 55;
+    //IGN_CA = 55;
+    IGN_CA = 90;
   }
   else if (tachoRpm < 6000) {
     INJ_time = 25;
     //IGN_CA = 80;
-    IGN_CA = 55;
+    //IGN_CA = 55;
+    IGN_CA = 90;
   }
   else {
     INJ_time = 0;
@@ -144,7 +152,7 @@ void INJ_IGN() {
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 50;
-    IGN_CA = 0;
+    IGN_CA = 10;
   }
 }
 
@@ -519,7 +527,7 @@ void loop() {
   // シリアル送信
   Serialsend();
 
-  if (micros() - tachoBefore >= 600 * 1000 ) {  // 100rpm以下(前回のカムパルスONから0.6sec以上経過)の場合
+  if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
     tachoRpm = 0;
     INJ_time = 0.0;
     IGN_CA = 0;
