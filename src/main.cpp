@@ -70,81 +70,83 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 40;
+    INJ_time = 90;
     IGN_CA = 20;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 40;
+    INJ_time = 90;
     IGN_CA = 20;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 40;
+    INJ_time = 90;
     IGN_CA = 20;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 40;
+    INJ_time = 90;
     IGN_CA = 30;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 40;
-    IGN_CA = 30;
+    INJ_time = 90;
+    //IGN_CA = 30;
+    IGN_CA = 25;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 45;
-    IGN_CA = 30;
+    INJ_time = 90;
+    //IGN_CA = 30;
+    IGN_CA = 25;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 40;
-    IGN_CA = 40;
-    //IGN_CA = 35;
+    INJ_time = 90;
+    //IGN_CA = 40;
+    IGN_CA = 30;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 40;
-    IGN_CA = 55;
-    //IGN_CA = 40;
+    INJ_time = 90;
+    //IGN_CA = 55;
+    IGN_CA = 40;
     //IGN_CA = 65;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 40;
-    IGN_CA = 65;
-    //IGN_CA = 45;
+    INJ_time = 90;
+    //IGN_CA = 65;
+    IGN_CA = 45;
     //IGN_CA = 70;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 30;
-    IGN_CA = 70;
-    //IGN_CA = 55;
+    INJ_time = 70;
+    //IGN_CA = 70;
+    IGN_CA = 55;
     //IGN_CA = 75;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 30;
+    INJ_time = 70;
     //IGN_CA = 70;
-    //IGN_CA = 55;
-    IGN_CA = 85;
+    IGN_CA = 55;
+    //IGN_CA = 85;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 27;
+    INJ_time = 63;
     //IGN_CA = 75;
-    //IGN_CA = 55;
-    IGN_CA = 90;
+    IGN_CA = 55;
+    //IGN_CA = 90;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 25;
+    INJ_time = 57;
     //IGN_CA = 80;
-    //IGN_CA = 55;
-    IGN_CA = 90;
+    IGN_CA = 55;
+    //IGN_CA = 90;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 25;
+    INJ_time = 57;
     //IGN_CA = 80;
-    //IGN_CA = 55;
-    IGN_CA = 90;
+    IGN_CA = 55;
+    //IGN_CA = 90;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 25;
+    INJ_time = 57;
     //IGN_CA = 80;
-    //IGN_CA = 55;
-    IGN_CA = 90;
+    IGN_CA = 55;
+    //IGN_CA = 90;
   }
   else {
     INJ_time = 0;
