@@ -521,6 +521,8 @@ void loop() {
     fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
     worktime = 0;                               // 走行時間を0にする
     starttime = 0;                              // 走行開始時間を0にする
+    distancemm = 0;                             // 走行距離を0にする
+    distance = 0;                               // 走行距離を0にする
   }
 
   INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
