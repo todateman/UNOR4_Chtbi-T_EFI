@@ -188,7 +188,7 @@ void Routine() {
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
-      gasml += (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015;  // 燃料消費量(ml)を積算
+      gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 2.2506;  // 燃料消費量(ml)を積算 2024.06.08の鈴鹿大会CN燃料結果で燃料消費量を補正
       //Serial.println("INJ_OFF");
     }
   }
