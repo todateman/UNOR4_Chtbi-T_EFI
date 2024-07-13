@@ -184,16 +184,6 @@ void INJ_IGN_SD() {
   }
 }
 
-// クランク角の読み取り
-void ReadNe(){
-  //Ne_deg = as5600.rawAngle() * AS5600_RAW_TO_DEGREES;
-  Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～720degで取得する
-  tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
-  if (as5600.getRevolutions() >= 2) {                     // クランクが2回転(720°)以上回転したらリセット)
-    as5600.resetPosition();
-  }
-}
-
 // 燃料噴射・点火制御
 void Routine() {
   // 噴射ONステータス時
@@ -234,29 +224,52 @@ void Routine() {
 
     // 噴射OFFステータス時
     if ( INJ_Status == 1 && !INJ_His ) {
-      if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
-        timeNow_INJ_ON = micros();     // 噴射開始時の時刻を記録
-        INJ_His = true;               // 噴射履歴あり
-        //digitalWrite(INJ_OUT, LOW);   // 噴射ON
-        fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
-        INJ_Status = 2;               // 噴射ONステータス
-        //Serial.println("INJ_ON");
+      if (Encoder){                     // 磁気エンコーダが有効なら
+        if ( Ne_deg >= 110 ){             // 上死点から110°に達したら
+          timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
+          INJ_His = true;                   // 噴射履歴あり
+          //digitalWrite(INJ_OUT, LOW);     // 噴射ON
+          fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+          INJ_Status = 2;                   // 噴射ONステータス
+          //Serial.println("INJ_ON");
+        }
+      }
+      else {                            // 磁気エンコーダが無効なら
+        if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
+          timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
+          INJ_His = true;                   // 噴射履歴あり
+          //digitalWrite(INJ_OUT, LOW);     // 噴射ON
+          fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+          INJ_Status = 2;                   // 噴射ONステータス
+          //Serial.println("INJ_ON");
+        }
       }
     }
 
   
     //点火OFFステータス時
-    if ( IGN_Status == 1 && !IGN_His )  {  
-      if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
-        timeNow_IGN_ON = micros();     // 点火開始時の時刻を記録
-        IGN_His = true;               // 点火履歴あり
-        //digitalWrite(IGN_OUT, LOW);   // 点火ON
-        fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
-        IGN_Status = 2;               // 点火ONステータス
-        //Serial.println("IGN_ON");
+    if ( IGN_Status == 1 && !IGN_His ) {  
+      if (Encoder){                     // 磁気エンコーダが有効なら
+        if ( Ne_deg >= 720 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
+          timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
+          IGN_His = true;                   // 点火履歴あり
+          //digitalWrite(IGN_OUT, LOW);     // 点火ON
+          fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+          IGN_Status = 2;                   // 点火ONステータス
+          //Serial.println("IGN_ON");
+        }
+      }
+      else {                            // 磁気エンコーダが無効なら
+        if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
+          timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
+          IGN_His = true;                   // 点火履歴あり
+          //digitalWrite(IGN_OUT, LOW);     // 点火ON
+          fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+          IGN_Status = 2;                   // 点火ONステータス
+          //Serial.println("IGN_ON");
+        }
       }
     }
-
   }
 }
 
@@ -331,16 +344,17 @@ void HW_PULSE() {
   distance = distancemm * 0.001;   //走行距離(m)を積算
 }
 
-
 // カム角センサーから回転数計算
 void tachometer() {
   tachoAfter = micros();  // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
-  tachoBefore = tachoAfter;  // 今回の値を前回の値に代入する
-  if (!Encoder){             // 磁器エンコーダが無効の場合
+  tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
+  if (Encoder){             // 磁気エンコーダが有効の場合
+    as5600.resetPosition(); // カムが1回転したらクランク回転数・角度をリセット
+  } else {                    // 磁気エンコーダが無効の場合
     tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
+    usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   }
-  usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   
   if (SDMAP) {     // SD内の点火MAPが使用できる場合
     INJ_IGN_SD();  // SDから読んだ点火MAP
@@ -364,9 +378,14 @@ void tachometer() {
   //IGN_Status = 1;              // 点火ステータスOFF
   INJ_His = false;               // 噴射履歴をリセット
   IGN_His = false;               // 点火履歴をリセット
-  
 }
 
+// クランク角の読み取り
+void ReadNe(){
+  //Ne_deg = as5600.rawAngle() * 0.087890625;             // クランク角を0～359.99°で取得する
+  Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
+  tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
+}
 
 // 点火MAPファイル読み込み
 void parseCSV() {
