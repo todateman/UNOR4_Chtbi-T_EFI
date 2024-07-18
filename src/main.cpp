@@ -376,7 +376,7 @@ void ReadNe(void *pvParameters){
 
     //Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // 累積のクランク角を取得する
     Ne_deg = as5600.rawAngle() * 0.087890625 + 360.0 * now_Revolution;    // 累積クランク角 = 0～359.99° + 360° * "周目"
-    if (Ne_deg >=180 && before_Revolution - now_Revolution > 0) {   // もし"周目"がクランク角0°の前のタイミングでリセットされたら
+    if (Ne_deg >= 180.0 && before_Revolution - now_Revolution > 0) {   // もし"周目"がクランク角0°の前のタイミングでリセットされたら
       Ne_deg -= 360.0;                                              // 累積クランク角を-360°する
     }
     before_Revolution = now_Revolution;
