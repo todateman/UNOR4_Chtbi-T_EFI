@@ -70,6 +70,7 @@ float dispergas = 0.0;  // 燃費(km/l)
 unsigned long starttime = 0;    // 走行開始時間(msec)
 uint16_t worktime = 0;          // 走行時間(sec)
 bool Launch = false;            // 走行開始状態
+const uint8_t Routine_Cycle = 24;   // 燃料噴射・点火制御の実行サイクル(usec)
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
@@ -192,6 +193,8 @@ void INJ_IGN_SD() {
 
 // 燃料噴射・点火制御
 void Routine() {
+  Ne_deg += usecperdig * Routine_Cycle; // クランク角に時間経過分の補正値を加える
+
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
     if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
@@ -230,50 +233,26 @@ void Routine() {
 
     // 噴射OFFステータス時
     if ( INJ_Status == 1 && !INJ_His ) {
-      if (Encoder){                     // 磁気エンコーダが有効なら
-        if ( Ne_deg >= 110 ){             // 上死点から110°に達したら
-          timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
-          INJ_His = true;                   // 噴射履歴あり
-          //digitalWrite(INJ_OUT, LOW);     // 噴射ON
-          fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
-          INJ_Status = 2;                   // 噴射ONステータス
-          //Serial.println("INJ_ON");
-        }
-      }
-      else {                            // 磁気エンコーダが無効なら
-        if ( micros() - tachoAfter >= usecperdig * (TDC_P + 110) ){  // 上死点から[回転数に応じた1°当たりの時間]*60°以上経過したら
-          timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
-          INJ_His = true;                   // 噴射履歴あり
-          //digitalWrite(INJ_OUT, LOW);     // 噴射ON
-          fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
-          INJ_Status = 2;                   // 噴射ONステータス
-          //Serial.println("INJ_ON");
-        }
+      if ( Ne_deg >= 110 ){             // 上死点から110°に達したら
+        timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
+        INJ_His = true;                   // 噴射履歴あり
+        //digitalWrite(INJ_OUT, LOW);     // 噴射ON
+        fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+        INJ_Status = 2;                   // 噴射ONステータス
+        //Serial.println("INJ_ON");
       }
     }
 
   
     //点火OFFステータス時
     if ( IGN_Status == 1 && !IGN_His ) {  
-      if (Encoder){                     // 磁気エンコーダが有効なら
-        if ( Ne_deg >= 720 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
-          timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
-          IGN_His = true;                   // 点火履歴あり
-          //digitalWrite(IGN_OUT, LOW);     // 点火ON
-          fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
-          IGN_Status = 2;                   // 点火ONステータス
-          //Serial.println("IGN_ON");
-        }
-      }
-      else {                            // 磁気エンコーダが無効なら
-        if ( micros() - tachoAfter >= usecperdig * (360 + TDC_P - IGN_CA) ){  // 圧縮→膨張サイクルの上死点から進角角度分の時間が経過したら
-          timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
-          IGN_His = true;                   // 点火履歴あり
-          //digitalWrite(IGN_OUT, LOW);     // 点火ON
-          fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
-          IGN_Status = 2;                   // 点火ONステータス
-          //Serial.println("IGN_ON");
-        }
+      if ( Ne_deg >= 720 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
+        timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
+        IGN_His = true;                   // 点火履歴あり
+        //digitalWrite(IGN_OUT, LOW);     // 点火ON
+        fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+        IGN_Status = 2;                   // 点火ONステータス
+        //Serial.println("IGN_ON");
       }
     }
   }
@@ -356,8 +335,9 @@ void tachometer() {
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
   tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
   if (Encoder){             // 磁気エンコーダが有効の場合
-    as5600.resetPosition(); // カムが1回転したらクランク回転数・角度をリセット
+    as5600.resetPosition(); // カムが1回転したらクランク回転数(周目)・累積クランク角をリセット
   } else {                    // 磁気エンコーダが無効の場合
+    Ne_deg = 0.0;             // クランク角を上死点にリセット
     tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
     usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
   }
@@ -391,9 +371,11 @@ void ReadNe(void *pvParameters){
   for (;;) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
+
     //Ne_deg = as5600.rawAngle() * 0.087890625;             // クランク角を0～359.99°で取得する
-    Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
-    tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
+    Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // 累積のクランク角を取得する
+    tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
+    usecperdig = 1000 * 1000 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
     //Serial.println(Ne_deg);
     vTaskDelayUntil(&xLastWakeTime, 1);                // 1msec停止
   }
@@ -609,7 +591,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING); // 外部割り込み（HW_IN）
   attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
 
-  AGTimer.init(24, Routine);  // 24use周期で燃料噴射・点火制御を実行
+  AGTimer.init(Routine_Cycle, Routine);  // 24use周期で燃料噴射・点火制御を実行
   AGTimer.start();
 
   // 磁気エンコーダのタスク
