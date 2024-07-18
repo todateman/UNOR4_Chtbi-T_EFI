@@ -371,14 +371,20 @@ void ReadNe(void *pvParameters){
   for (;;) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
+    static uint8_t before_Revolution = 0;                     // 1回前の"周目"
+    static uint8_t now_Revolution = as5600.getRevolutions();  // 現在の"周目"
 
-    //Ne_deg = as5600.rawAngle() * 0.087890625;             // クランク角を0～359.99°で取得する
-    Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // 累積のクランク角を取得する
+    //Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // 累積のクランク角を取得する
+    Ne_deg = as5600.rawAngle() * 0.087890625 + 360.0 * now_Revolution;    // 累積クランク角 = 0～359.99° + 360° * "周目"
+    if (Ne_deg >=180 && before_Revolution - now_Revolution > 0) {   // もし"周目"がクランク角0°の前のタイミングでリセットされたら
+      Ne_deg -= 360.0;                                              // 累積クランク角を-360°する
+    }
+    before_Revolution = now_Revolution;
     tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
     usecperdig = 1000 * 1000 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
     //Serial.println(Ne_deg);
     vTaskDelayUntil(&xLastWakeTime, 1);                // 1msec停止
-  }
+  } 
 }
 
 // 点火MAPファイル読み込み
