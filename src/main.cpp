@@ -7,12 +7,18 @@
 #include "SD.h"
 #include "fastestDigitalRW.hpp"
 #include "AGTimerR4.h"
+#include <Arduino_FreeRTOS.h>
 #include <Wire.h>
 #include <U8x8lib.h>
 #include "AS5600.h"
 
 //U8X8_SH1107_64X128_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 1.3"
 U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
+
+// 磁気エンコーダタスクのハンドル
+TaskHandle_t UpdateReadNeHandle;
+// ステータス出力タスクのハンドル
+TaskHandle_t UpdatemainloopHandle;
 
 AS5600 as5600;             // 磁気エンコーダ
 
@@ -381,10 +387,16 @@ void tachometer() {
 }
 
 // クランク角の読み取り
-void ReadNe(){
-  //Ne_deg = as5600.rawAngle() * 0.087890625;             // クランク角を0～359.99°で取得する
-  Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
-  tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
+void ReadNe(void *pvParameters){
+  for (;;) {
+    TickType_t xLastWakeTime;
+    xLastWakeTime = xTaskGetTickCount();
+    //Ne_deg = as5600.rawAngle() * 0.087890625;             // クランク角を0～359.99°で取得する
+    Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
+    tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
+    //Serial.println(Ne_deg);
+    vTaskDelayUntil(&xLastWakeTime, 1);                // 1msec停止
+  }
 }
 
 // 点火MAPファイル読み込み
@@ -441,6 +453,55 @@ void printData() {
   }
 }
 
+// ステータス出力
+void mainloop(void *pvParameters) {
+  for(;;){
+    TickType_t xLastWakeTime;
+    xLastWakeTime = xTaskGetTickCount();
+
+    //Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
+    //tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
+
+    if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
+      distancemm = 0;                           // 走行距離を0にする
+      distance = 0;                             // 走行距離を0にする
+      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+      Launch = false;                           // 走行開始OFF
+      Serialsend();                             // シリアル送信
+      delay(1000);
+    }
+    if (Launch) {                               // 走行開始ONの場合
+      fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
+      if (starttime == 0) {                       // 走行時間が0の場合
+        starttime = millis();                     // 走行開始時間を現在の時間にする
+      }
+      worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
+    }
+    else {
+      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+      worktime = 0;                               // 走行時間を0にする
+      starttime = 0;                              // 走行開始時間を0にする
+      distancemm = 0;                             // 走行距離を0にする
+      distance = 0;                               // 走行距離を0にする
+    }
+
+    INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
+    dispergas = distance  / gasml;        // 燃費(m/ml = km/l)を計算
+
+    // シリアル送信
+    Serialsend();
+
+    if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
+      tachoRpm = 0;
+      INJ_time = 0.0;
+      IGN_CA = 0;
+    }
+
+    if (micros() - speedBefore > 3600 * perimeter){speed = 0;}  // 速度1km/h以下の時は速度を0にする 
+
+    vTaskDelayUntil(&xLastWakeTime, 500);                  // 500ms停止
+  }
+}
 
 void setup() {
   Serial.begin(115200);  // シリアル通信を開始
@@ -529,18 +590,18 @@ void setup() {
   }
 
   // AS5600磁気エンコーダの接続確認
+  as5600.begin();
   as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  // エンコーダの回転方向を反時計回りに設定 ※DIRピンをGNDに落とす
   as5600.setOffset(Ne_offset);                    // クランク角のオフセットを設定
+  //Serial.print(as5600.isConnected());
+  //Serial.print(as5600.detectMagnet());
+  //Serial.print(as5600.magnetTooWeak());
+  //Serial.println(as5600.magnetTooStrong());
   Encoder = as5600.isConnected()                  // AS5600を認識している
             && as5600.detectMagnet()              // 磁石を検知している
-            && !as5600.magnetTooStrong()          // 磁力が強すぎない
             && !as5600.magnetTooWeak();           // 磁力が弱すぎない
-  if(Encoder) {
-    as5600.resetPosition();
-    AGTimer.init(150, ReadNe);  // 150use周期でクランク角を取得
-    AGTimer.start();
-  }
-  else {
+  //          && !as5600.magnetTooStrong();          // 磁力が強すぎない
+  if(!Encoder) {
     Serial.println(F("Don't use AS5600"));
   }
   //Wire.end();
@@ -551,47 +612,28 @@ void setup() {
   AGTimer.init(24, Routine);  // 24use周期で燃料噴射・点火制御を実行
   AGTimer.start();
 
+  // 磁気エンコーダのタスク
+  xTaskCreate(
+    ReadNe,             // タスク関数
+    "ReadNe",           // タスクの名前
+    128,                // タスクのスタックサイズ
+    NULL,               // タスク関数に渡す引数
+    2,                  // タスクの優先度
+    &UpdateReadNeHandle // タスクハンドル
+  );
+  // ステータス出力のタスク
+  xTaskCreate(
+    mainloop,           // タスク関数
+    "mainloop",         // タスクの名前
+    128,                // タスクのスタックサイズ
+    NULL,               // タスク関数に渡す引数
+    2,                  // タスクの優先度
+    &UpdatemainloopHandle // タスクハンドル
+  );
+  // タスク実行
+  vTaskStartScheduler();
 }
 
-
-// ステータス出力
 void loop() {
-  if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
-    distancemm = 0;                           // 走行距離を0にする
-    distance = 0;                             // 走行距離を0にする
-    fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-    Launch = false;                           // 走行開始OFF
-    Serialsend();                             // シリアル送信
-    delay(1000);
-  }
-  if (Launch) {                               // 走行開始ONの場合
-    fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
-    if (starttime == 0) {                       // 走行時間が0の場合
-      starttime = millis();                     // 走行開始時間を現在の時間にする
-    }
-    worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
-  }
-  else {
-    fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-    worktime = 0;                               // 走行時間を0にする
-    starttime = 0;                              // 走行開始時間を0にする
-    distancemm = 0;                             // 走行距離を0にする
-    distance = 0;                               // 走行距離を0にする
-  }
-
-  INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
-  dispergas = distance  / gasml;        // 燃費(m/ml = km/l)を計算
-
-  // シリアル送信
-  Serialsend();
-
-  if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
-    tachoRpm = 0;
-    INJ_time = 0.0;
-    IGN_CA = 0;
-  }
-
-  if (micros() - speedBefore > 3600 * perimeter){speed = 0;}  // 速度1km/h以下の時は速度を0にする 
-
-  delay(500);  // 500ms停止
+ delay(1);
 }
