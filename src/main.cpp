@@ -193,7 +193,7 @@ void INJ_IGN_SD() {
 
 // 燃料噴射・点火制御
 void Routine() {
-  Ne_deg += usecperdig * Routine_Cycle; // クランク角に時間経過分の補正値を加える
+  Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
 
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
@@ -372,7 +372,8 @@ void ReadNe(void *pvParameters){
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
     static uint8_t before_Revolution = 0;                     // 1回前の"周目"
-    static uint8_t now_Revolution = as5600.getRevolutions();  // 現在の"周目"
+    as5600.getCumulativePosition();                           // getRevolutions()更新のために、累積クランク角を取得
+    uint8_t now_Revolution = as5600.getRevolutions();         // 現在の"周目"
 
     //Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // 累積のクランク角を取得する
     Ne_deg = as5600.rawAngle() * 0.087890625 + 360.0 * now_Revolution;    // 累積クランク角 = 0～359.99° + 360° * "周目"
@@ -446,9 +447,6 @@ void mainloop(void *pvParameters) {
   for(;;){
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
-
-    //Ne_deg = as5600.getCumulativePosition() * 0.087890625;  // クランク角を0～719.99°で取得する
-    //tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);
 
     if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
       distancemm = 0;                           // 走行距離を0にする
@@ -579,7 +577,7 @@ void setup() {
 
   // AS5600磁気エンコーダの接続確認
   as5600.begin();
-  as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  // エンコーダの回転方向を反時計回りに設定 ※DIRピンをGNDに落とす
+  //as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  // エンコーダの回転方向を反時計回りに設定 ※DIRピンをGNDに落とす
   as5600.setOffset(Ne_offset);                    // クランク角のオフセットを設定
   //Serial.print(as5600.isConnected());
   //Serial.print(as5600.detectMagnet());
