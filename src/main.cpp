@@ -261,8 +261,6 @@ void Routine() {
 // シリアル送信
 void Serialsend() {
   if (Serial_ON){                             // USBシリアルが有効なら
-    Serial.print(Ne_deg);
-    Serial.print("\t");
     Serial.print(tachoRpm);
     Serial.print("\t");
     Serial.print(INJ_timems, 1);
@@ -277,7 +275,13 @@ void Serialsend() {
     Serial.print("\t");
     Serial.print(dispergas, 1);
     Serial.print("\t");
-    Serial.println(worktime);
+    Serial.print(worktime);
+    if (Encoder) {
+      Serial.print("\t");
+      Serial.print(Ne_deg);
+      Serial.print("°");
+    }
+    Serial.println();
   }
   if (Serial1_ON){                             // 外部シリアルが有効なら
     Serial1.print(tachoRpm);
