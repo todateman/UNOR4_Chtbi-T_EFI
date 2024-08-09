@@ -384,18 +384,18 @@ void ReadNe(void *pvParameters){
   for (;;) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
-    static uint16_t before_Ne_deg_raw = 0;          // 前回の磁気エンコーダ生値
     as5600.getCumulativePosition();                 // getRevolutions()更新のために、累積クランク角を取得
     now_Revolution = as5600.getRevolutions();       // 現在の"周目"
 
     Ne_deg_raw =  as5600.readAngle();               // 磁気エンコーダ生値(0-4095)を取得
-    Ne_deg = Ne_deg_raw * 0.087890625 + 360.0 * now_Revolution;    // 累積クランク角 = 0～359.99° + 360° * "周目"
+    Ne_deg = Ne_deg_raw * 0.087890625 + 360.0 * (now_Revolution % 2);   // 累積クランク角 = 0～359.99° + 360° * "周目"
+                                                                        // 偶数周では0, 奇数周では1を代入し、クランク角を0～720°の範囲に納める
+                                                                        // (リセット予約タイミングの遅れ対策)
 
-    if (NeReset && before_Ne_deg_raw - Ne_deg_raw > 2048 ) {   // クランク回転数リセット予約が有効 & クランク上死点を通過した場合
+    if (NeReset && Ne_deg_raw < 2048) {             // クランク回転数リセット予約が有効 & クランク上死点を通過した場合
       as5600.resetPosition();                         // クランク回転数(周目)・累積クランク角をリセット
       NeReset = false;                                // クランク回転数リセット予約をリセット
     }
-    before_Ne_deg_raw = Ne_deg_raw;                   // 比較用に磁気エンコーダ生値を前回値として代入
     tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
     usecperdig = 1000 * 1000 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
     //Serial.println(Ne_deg);
