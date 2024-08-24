@@ -63,10 +63,11 @@ uint8_t INJ_OUT = A0;   // インジェクタ出力
 uint8_t IGN_OUT = A1;   // イグニッション出力
 uint8_t STR_OUT = A2;   // スタータ出力
 uint8_t DISRESET_OUT = A3;      // リセット状態出力(リセットされていればOFF)
-unsigned long usecperdig = 0;   // クランク1°当たりの時間(usec)
+float usecperdig = 0.0; // クランク1°当たりの時間(usec)
 int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
 uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
 float Ne_offset = 86.49;  // クランク角のオフセット(deg)を設定
+uint8_t INJ_STR_CA = 35;  // 燃料噴射タイミング角度(deg)を設定
 float gasml = 0.0;      // 積算燃料消費量(ml)
 float INJ_timems = 0.0; // 燃焼噴射時間(msec)
 float dispergas = 0.0;  // 燃費(km/l)
@@ -194,6 +195,35 @@ void INJ_IGN_SD() {
   }
 }
 
+// エンジン回転処理リセット
+void Cycle_Reset() {
+  if (SDMAP) {     // SD内の点火MAPが使用できる場合
+    INJ_IGN_SD();  // SDから読んだ点火MAP
+  }
+  else {
+    INJ_IGN();     // 本コード内の点火MAP
+  }
+
+  //if (INJ_time > 0) {
+  if (tachoRpm <= 6000) {
+    INJ_Status = 1;  // 噴射OFF
+    IGN_Status = 1;  // 点火OFF
+  }
+  else {
+    INJ_Status = 0;  // 噴射無効
+    IGN_Status = 0;  // 点火無効
+    timeNow_INJ_ON = NULL;
+    timeNow_INJ_OFF = NULL;
+  }
+  //INJ_Status = 1;              // 噴射ステータスOFF
+  //IGN_Status = 1;              // 点火ステータスOFF
+  INJ_His = false;               // 噴射履歴をリセット
+  IGN_His = false;               // 点火履歴をリセット
+
+  // Serial.print("Cycle_Reset: ");
+  // Serial.println(Ne_deg);
+}
+
 // 燃料噴射・点火制御
 void Routine() {
   Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
@@ -206,7 +236,8 @@ void Routine() {
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 2.2506;  // 燃料消費量(ml)を積算 2024.06.08の鈴鹿大会CN燃料結果で燃料消費量を補正
-      //Serial.println("INJ_OFF");
+      Serial.print("INJ_OFF: ");
+      Serial.println(Ne_deg);
     }
   }
 
@@ -217,7 +248,8 @@ void Routine() {
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
       IGN_Status = 1;               // 点火無効ステータス
-      //Serial.println("IGN_OFF");
+      Serial.print("IGN_OFF: ");
+      Serial.println(Ne_deg);
     }
   }
 
@@ -236,26 +268,28 @@ void Routine() {
 
     // 噴射OFFステータス時
     if ( INJ_Status == 1 && !INJ_His ) {
-      if ( Ne_deg >= 110 ){             // 上死点から110°に達したら
+      if ( Ne_deg >= INJ_STR_CA ){             // 上死点から燃料噴射タイミングの角度に達したら
         timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
         INJ_His = true;                   // 噴射履歴あり
         //digitalWrite(INJ_OUT, LOW);     // 噴射ON
         fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
         INJ_Status = 2;                   // 噴射ONステータス
-        //Serial.println("INJ_ON");
+        Serial.print("INJ_ON:  ");
+        Serial.println(Ne_deg);
       }
     }
 
   
     //点火OFFステータス時
     if ( IGN_Status == 1 && !IGN_His ) {  
-      if ( Ne_deg >= 720 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
+      if ( Ne_deg >= 360 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
         timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
         IGN_His = true;                   // 点火履歴あり
         //digitalWrite(IGN_OUT, LOW);     // 点火ON
         fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
         IGN_Status = 2;                   // 点火ONステータス
-        //Serial.println("IGN_ON");
+        Serial.print("IGN_ON:  ");
+        Serial.println(Ne_deg);
       }
     }
   }
@@ -279,17 +313,23 @@ void Serialsend() {
     Serial.print(dispergas, 1);
     Serial.print("\t");
     Serial.print(worktime);
-    if (Encoder) {
-      Serial.print("\t");
-      Serial.print(Ne_deg);
-      Serial.print("'");
-      // Serial.print("\t");
-      // Serial.print(Ne_deg_raw);
-      // Serial.print("\t");
-      // Serial.print(now_Revolution);
-      // Serial.print("\t");
-      // Serial.print(NeReset, HEX);
+    Serial.print("\t");
+    if (!Encoder) {
+      Serial.print("(");
     }
+    Serial.print(Ne_deg);
+    Serial.print("'");
+    if (!Encoder) {
+      Serial.print(")");
+    }
+    // if (Encoder) {
+    //   Serial.print("\t");
+    //   Serial.print(Ne_deg_raw);
+    //   Serial.print("\t");
+    //   Serial.print(now_Revolution);
+    //   Serial.print("\t");
+    //   Serial.print(NeReset, HEX);
+    // }
     Serial.println();
   }
   if (Serial1_ON){                             // 外部シリアルが有効なら
@@ -352,52 +392,37 @@ void tachometer() {
   } else {                  // 磁気エンコーダが無効の場合
     Ne_deg = 0.0;             // クランク角を上死点にリセット
     tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-    usecperdig = tachoWidth / 360 / 2;  // クランク1°当たりの時間(usec)
+    usecperdig = tachoWidth / 720.0;  // クランク1°当たりの時間(usec)
+    Cycle_Reset();            // エンジン運転のリセット処理
   }
-  
-  if (SDMAP) {     // SD内の点火MAPが使用できる場合
-    INJ_IGN_SD();  // SDから読んだ点火MAP
-  }
-  else {
-    INJ_IGN();     // 本コード内の点火MAP
-  }
-
-  //if (INJ_time > 0) {
-  if (tachoRpm <= 6000) {
-    INJ_Status = 1;  // 噴射OFF
-    IGN_Status = 1;  // 点火OFF
-  }
-  else {
-    INJ_Status = 0;  // 噴射無効
-    IGN_Status = 0;  // 点火無効
-    timeNow_INJ_ON = NULL;
-    timeNow_INJ_OFF = NULL;
-  }
-  //INJ_Status = 1;              // 噴射ステータスOFF
-  //IGN_Status = 1;              // 点火ステータスOFF
-  INJ_His = false;               // 噴射履歴をリセット
-  IGN_His = false;               // 点火履歴をリセット
 }
 
 // クランク角の読み取り
 void ReadNe(void *pvParameters){
+  uint16_t _Ne_deg_raw = 0;
   for (;;) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
-    as5600.getCumulativePosition();                 // getRevolutions()更新のために、累積クランク角を取得
-    now_Revolution = as5600.getRevolutions();       // 現在の"周目"
-
     Ne_deg_raw =  as5600.readAngle();               // 磁気エンコーダ生値(0-4095)を取得
+
     Ne_deg = Ne_deg_raw * 0.087890625 + 360.0 * (now_Revolution % 2);   // 累積クランク角 = 0～359.99° + 360° * "周目"
                                                                         // 偶数周では0, 奇数周では1を代入し、クランク角を0～720°の範囲に納める
                                                                         // (リセット予約タイミングの遅れ対策)
-
-    if (NeReset && Ne_deg_raw < 2048) {             // クランク回転数リセット予約が有効 & クランク上死点を通過した場合
-      as5600.resetPosition();                         // クランク回転数(周目)・累積クランク角をリセット
-      NeReset = false;                                // クランク回転数リセット予約をリセット
-    }
     tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
-    usecperdig = 1000 * 1000 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
+    usecperdig = 1000.0 * 1000.0 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
+
+    if (_Ne_deg_raw - Ne_deg_raw > 2048) {          // クランク上死点を通過したら
+      if (NeReset) {                                  // クランク回転数リセット予約が有効なら
+        now_Revolution = 0;                             // "0周目"にリセット  
+        NeReset = false;                                // クランク回転数リセット予約をリセット
+        Cycle_Reset();                                  // エンジン運転のリセット処理
+      }
+      else {                                          // クランク回転数リセット予約が無効なら
+        now_Revolution++;                               // 現在の"周目"を更新
+      }
+    }
+
+    _Ne_deg_raw = Ne_deg_raw;                         // 次回比較する磁気エンコーダ生値を記録
     //Serial.println(Ne_deg);
     vTaskDelayUntil(&xLastWakeTime, 1);                // 1msec停止
   } 
@@ -494,6 +519,7 @@ void mainloop(void *pvParameters) {
 
     if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
       tachoRpm = 0;
+      usecperdig = 0.0;
       INJ_time = 0.0;
       IGN_CA = 0;
     }
@@ -603,6 +629,16 @@ void setup() {
             // && !as5600.magnetTooWeak()         // 磁力が弱すぎない
             // && !as5600.magnetTooStrong();      // 磁力が強すぎない
   if (Encoder) {
+    // 磁気エンコーダのタスク
+    xTaskCreate(
+      ReadNe,             // タスク関数
+      "ReadNe",           // タスクの名前
+      128,                // タスクのスタックサイズ
+      NULL,               // タスク関数に渡す引数
+      2,                  // タスクの優先度
+      &UpdateReadNeHandle // タスクハンドル
+    );
+
     as5600.resetPosition();                       // クランク回転数(周目)を初期化
   }
   else {
@@ -616,15 +652,6 @@ void setup() {
   AGTimer.init(Routine_Cycle, Routine);  // 24use周期で燃料噴射・点火制御を実行
   AGTimer.start();
 
-  // 磁気エンコーダのタスク
-  xTaskCreate(
-    ReadNe,             // タスク関数
-    "ReadNe",           // タスクの名前
-    128,                // タスクのスタックサイズ
-    NULL,               // タスク関数に渡す引数
-    2,                  // タスクの優先度
-    &UpdateReadNeHandle // タスクハンドル
-  );
   // ステータス出力のタスク
   xTaskCreate(
     mainloop,           // タスク関数
