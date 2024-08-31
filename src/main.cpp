@@ -47,7 +47,8 @@ volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
-volatile bool NeReset = false;    // クランク回転数(周目)リセット予約
+volatile bool G_Pulse = false;    // カムパルス信号
+volatile bool NeReset = false;    // クランク回転数リセットフラグ
 bool OLED = false;                // OLED有効/無効
 bool Encoder = false;             // AS5600磁気エンコーダ有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
@@ -105,65 +106,65 @@ void INJ_IGN() {
   else if (tachoRpm < 2000) {
     INJ_time = 90;
     //IGN_CA = 30;
-    IGN_CA = 25;
+    IGN_CA = 40;
   }
   else if (tachoRpm < 2400) {
     INJ_time = 90;
     //IGN_CA = 30;
-    IGN_CA = 25;
+    IGN_CA = 45;
   }
   else if (tachoRpm < 2800) {
     INJ_time = 90;
     //IGN_CA = 40;
-    IGN_CA = 30;
+    IGN_CA = 55;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 90;
-    //IGN_CA = 55;
-    IGN_CA = 40;
-    //IGN_CA = 65;
+    INJ_time = 80;
+    //IGN_CA = 60;
+    //IGN_CA = 40;
+    IGN_CA = 70;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 90;
-    //IGN_CA = 65;
-    IGN_CA = 45;
+    INJ_time = 70;
+    IGN_CA = 90;
+    //IGN_CA = 45;
     //IGN_CA = 70;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 70;
-    //IGN_CA = 70;
-    IGN_CA = 55;
+    INJ_time = 60;
+    IGN_CA = 100;
+    //IGN_CA = 55;
     //IGN_CA = 75;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 70;
-    //IGN_CA = 70;
-    IGN_CA = 55;
+    INJ_time = 60;
+    IGN_CA = 100;
+    //IGN_CA = 55;
     //IGN_CA = 85;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 63;
-    //IGN_CA = 75;
-    IGN_CA = 55;
-    //IGN_CA = 90;
+    INJ_time = 60;
+    //IGN_CA = 85;
+    //IGN_CA = 55;
+    IGN_CA = 100;
   }
   else if (tachoRpm < 5200) {
     INJ_time = 57;
-    //IGN_CA = 80;
-    IGN_CA = 55;
-    //IGN_CA = 90;
+    //IGN_CA = 85;
+    //IGN_CA = 55;
+    IGN_CA = 100;
   }
   else if (tachoRpm < 5600) {
     INJ_time = 57;
-    //IGN_CA = 80;
-    IGN_CA = 55;
-    //IGN_CA = 90;
+    //IGN_CA = 85;
+    //IGN_CA = 55;
+    IGN_CA = 100;
   }
   else if (tachoRpm < 6000) {
     INJ_time = 57;
-    //IGN_CA = 80;
-    IGN_CA = 55;
-    //IGN_CA = 90;
+    //IGN_CA = 85;
+    //IGN_CA = 55;
+    IGN_CA = 100;
   }
   else {
     INJ_time = 0;
@@ -236,8 +237,8 @@ void Routine() {
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 2.2506;  // 燃料消費量(ml)を積算 2024.06.08の鈴鹿大会CN燃料結果で燃料消費量を補正
-      Serial.print("INJ_OFF: ");
-      Serial.println(Ne_deg);
+      //Serial.print("INJ_OFF: ");
+      //Serial.println(Ne_deg);
     }
   }
 
@@ -248,8 +249,8 @@ void Routine() {
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
       IGN_Status = 1;               // 点火無効ステータス
-      Serial.print("IGN_OFF: ");
-      Serial.println(Ne_deg);
+      //Serial.print("IGN_OFF: ");
+      //Serial.println(Ne_deg);
     }
   }
 
@@ -274,8 +275,8 @@ void Routine() {
         //digitalWrite(INJ_OUT, LOW);     // 噴射ON
         fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
         INJ_Status = 2;                   // 噴射ONステータス
-        Serial.print("INJ_ON:  ");
-        Serial.println(Ne_deg);
+        //Serial.print("INJ_ON:  ");
+        //Serial.println(Ne_deg);
       }
     }
 
@@ -288,8 +289,8 @@ void Routine() {
         //digitalWrite(IGN_OUT, LOW);     // 点火ON
         fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
         IGN_Status = 2;                   // 点火ONステータス
-        Serial.print("IGN_ON:  ");
-        Serial.println(Ne_deg);
+        //Serial.print("IGN_ON:  ");
+        //Serial.println(Ne_deg);
       }
     }
   }
@@ -322,14 +323,16 @@ void Serialsend() {
     if (!Encoder) {
       Serial.print(")");
     }
-    // if (Encoder) {
-    //   Serial.print("\t");
-    //   Serial.print(Ne_deg_raw);
-    //   Serial.print("\t");
-    //   Serial.print(now_Revolution);
-    //   Serial.print("\t");
-    //   Serial.print(NeReset, HEX);
-    // }
+    if (Encoder) {
+//      Serial.print("\t");
+//      Serial.print(Ne_deg_raw);
+      Serial.print("\t");
+      Serial.print(now_Revolution);
+      Serial.print("\t");
+      Serial.print(G_Pulse, HEX);
+      Serial.print("\t");
+      Serial.print(NeReset, HEX);
+    }
     Serial.println();
   }
   if (Serial1_ON){                             // 外部シリアルが有効なら
@@ -388,7 +391,7 @@ void tachometer() {
   tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
   tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
   if (Encoder){             // 磁気エンコーダが有効の場合
-    NeReset = true;           // クランク回転数(周目)リセット予約有効
+    G_Pulse = true;           // カムパルス信号ON
   } else {                  // 磁気エンコーダが無効の場合
     Ne_deg = 0.0;             // クランク角を上死点にリセット
     tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
@@ -412,19 +415,20 @@ void ReadNe(void *pvParameters){
     usecperdig = 1000.0 * 1000.0 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
 
     if (_Ne_deg_raw - Ne_deg_raw > 2048) {          // クランク上死点を通過したら
-      if (NeReset) {                                  // クランク回転数リセット予約が有効なら
+      if (NeReset) {                                  // クランク回転数リセット有効なら、排気→吸気サイクル
         now_Revolution = 0;                             // "0周目"にリセット  
-        NeReset = false;                                // クランク回転数リセット予約をリセット
+        NeReset = false;                                // クランク回転数リセット無効
         Cycle_Reset();                                  // エンジン運転のリセット処理
       }
-      else {                                          // クランク回転数リセット予約が無効なら
+      if (G_Pulse) {                                  // カムパルス信号ONなら、圧縮→膨張サイクル
         now_Revolution++;                               // 現在の"周目"を更新
+        G_Pulse = false;                                // カムパルス信号をリセット
+        NeReset = true;                                 // クランク回転数リセット有効
       }
     }
-
     _Ne_deg_raw = Ne_deg_raw;                         // 次回比較する磁気エンコーダ生値を記録
     //Serial.println(Ne_deg);
-    vTaskDelayUntil(&xLastWakeTime, 1);                // 1msec停止
+    vTaskDelayUntil(&xLastWakeTime, 1);               // 1msec停止
   } 
 }
 
@@ -646,8 +650,14 @@ void setup() {
   }
   //Wire.end();
   
-  attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING); // 外部割り込み（HW_IN）
-  attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // 外部割り込み（G_IN）
+  attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING);   // 外部割り込み（HW_IN）
+  if (Encoder) {                                                      // エンコーダ有効の場合
+    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, RISING);  // OFFタイミングで外部割り込み（G_IN）
+  }
+  else {
+    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // ONタイミングで外部割り込み（G_IN）
+  }
+
 
   AGTimer.init(Routine_Cycle, Routine);  // 24use周期で燃料噴射・点火制御を実行
   AGTimer.start();
