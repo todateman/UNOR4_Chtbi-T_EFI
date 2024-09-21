@@ -88,83 +88,64 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 90;
-    IGN_CA = 20;
-  }
-  else if (tachoRpm < 800) {
-    INJ_time = 90;
-    IGN_CA = 20;
-  }
-  else if (tachoRpm < 1200) {
-    INJ_time = 90;
-    IGN_CA = 20;
-  }
-  else if (tachoRpm < 1600) {
-    INJ_time = 90;
-    IGN_CA = 30;
-  }
-  else if (tachoRpm < 2000) {
-    INJ_time = 90;
-    //IGN_CA = 30;
-    IGN_CA = 40;
-  }
-  else if (tachoRpm < 2400) {
-    INJ_time = 90;
-    //IGN_CA = 30;
+    INJ_time = 75;
     IGN_CA = 45;
   }
-  else if (tachoRpm < 2800) {
-    INJ_time = 90;
-    //IGN_CA = 40;
+  else if (tachoRpm < 800) {
+    INJ_time = 75;
+    IGN_CA = 45;
+  }
+  else if (tachoRpm < 1200) {
+    INJ_time = 75;
+    IGN_CA = 45;
+  }
+  else if (tachoRpm < 1600) {
+    INJ_time = 75;
     IGN_CA = 55;
   }
+  else if (tachoRpm < 2000) {
+    INJ_time = 75;
+    IGN_CA = 65;
+  }
+  else if (tachoRpm < 2400) {
+    INJ_time = 75;
+    IGN_CA = 80;
+  }
+  else if (tachoRpm < 2800) {
+    INJ_time = 75;
+    IGN_CA = 90;
+  }
   else if (tachoRpm < 3200) {
-    INJ_time = 80;
-    //IGN_CA = 60;
-    //IGN_CA = 40;
-    IGN_CA = 70;
+    INJ_time = 75;
+    IGN_CA = 100;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 70;
-    IGN_CA = 90;
-    //IGN_CA = 45;
-    //IGN_CA = 70;
+    INJ_time = 75;
+    IGN_CA = 115;
   }
   else if (tachoRpm < 4000) {
     INJ_time = 60;
-    IGN_CA = 100;
-    //IGN_CA = 55;
-    //IGN_CA = 75;
+    IGN_CA = 120;
   }
   else if (tachoRpm < 4400) {
     INJ_time = 60;
-    IGN_CA = 100;
-    //IGN_CA = 55;
-    //IGN_CA = 85;
+    IGN_CA = 120;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 60;
-    //IGN_CA = 85;
-    //IGN_CA = 55;
-    IGN_CA = 100;
+    INJ_time = 55;
+    IGN_CA = 120;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 57;
-    //IGN_CA = 85;
-    //IGN_CA = 55;
-    IGN_CA = 100;
+    INJ_time =507;
+    IGN_CA = 120;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 57;
-    //IGN_CA = 85;
-    //IGN_CA = 55;
-    IGN_CA = 100;
+    INJ_time = 50;
+    IGN_CA = 120;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 57;
-    //IGN_CA = 85;
-    //IGN_CA = 55;
-    IGN_CA = 100;
+    INJ_time = 50;
+    IGN_CA = 120;
   }
   else {
     INJ_time = 0;
@@ -221,8 +202,10 @@ void Cycle_Reset() {
   INJ_His = false;               // 噴射履歴をリセット
   IGN_His = false;               // 点火履歴をリセット
 
-  // Serial.print("Cycle_Reset: ");
-  // Serial.println(Ne_deg);
+  if (Encoder) {
+    Serial.print("Cycle_Reset: ");
+    Serial.println(Ne_deg);
+  }
 }
 
 // 燃料噴射・点火制御
@@ -237,8 +220,10 @@ void Routine() {
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 2.2506;  // 燃料消費量(ml)を積算 2024.06.08の鈴鹿大会CN燃料結果で燃料消費量を補正
-      //Serial.print("INJ_OFF: ");
-      //Serial.println(Ne_deg);
+      if (Encoder) {
+        Serial.print("INJ_OFF: ");
+        Serial.println(Ne_deg);
+      }
     }
   }
 
@@ -249,8 +234,10 @@ void Routine() {
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
       fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
       IGN_Status = 1;               // 点火無効ステータス
-      //Serial.print("IGN_OFF: ");
-      //Serial.println(Ne_deg);
+      if (Encoder) {
+        Serial.print("IGN_OFF: ");
+        Serial.println(Ne_deg);
+      }
     }
   }
 
@@ -275,8 +262,10 @@ void Routine() {
         //digitalWrite(INJ_OUT, LOW);     // 噴射ON
         fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
         INJ_Status = 2;                   // 噴射ONステータス
-        //Serial.print("INJ_ON:  ");
-        //Serial.println(Ne_deg);
+        if (Encoder) {
+          Serial.print("INJ_ON:  ");
+          Serial.println(Ne_deg);
+        }
       }
     }
 
@@ -289,8 +278,10 @@ void Routine() {
         //digitalWrite(IGN_OUT, LOW);     // 点火ON
         fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
         IGN_Status = 2;                   // 点火ONステータス
-        //Serial.print("IGN_ON:  ");
-        //Serial.println(Ne_deg);
+        if (Encoder) {
+          Serial.print("IGN_ON:  ");
+          Serial.println(Ne_deg);
+        }
       }
     }
   }
@@ -415,17 +406,19 @@ void ReadNe(void *pvParameters){
     usecperdig = 1000.0 * 1000.0 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
 
     if (_Ne_deg_raw - Ne_deg_raw > 2048) {          // クランク上死点を通過したら
+      if (G_Pulse) {                                  // カムパルス信号ONなら、圧縮→膨張サイクル
+        now_Revolution++;                               // 現在の"周目"を更新
+        G_Pulse = false;                                // カムパルス信号をリセット
+        NeReset = true;                                 // クランク回転数リセット有効
+        goto label_goto;                                // 直後に排気→吸気サイクル判定しないようにgotoを使用
+      }
       if (NeReset) {                                  // クランク回転数リセット有効なら、排気→吸気サイクル
         now_Revolution = 0;                             // "0周目"にリセット  
         NeReset = false;                                // クランク回転数リセット無効
         Cycle_Reset();                                  // エンジン運転のリセット処理
       }
-      if (G_Pulse) {                                  // カムパルス信号ONなら、圧縮→膨張サイクル
-        now_Revolution++;                               // 現在の"周目"を更新
-        G_Pulse = false;                                // カムパルス信号をリセット
-        NeReset = true;                                 // クランク回転数リセット有効
-      }
     }
+    label_goto:
     _Ne_deg_raw = Ne_deg_raw;                         // 次回比較する磁気エンコーダ生値を記録
     //Serial.println(Ne_deg);
     vTaskDelayUntil(&xLastWakeTime, 1);               // 1msec停止
@@ -639,7 +632,7 @@ void setup() {
       "ReadNe",           // タスクの名前
       128,                // タスクのスタックサイズ
       NULL,               // タスク関数に渡す引数
-      2,                  // タスクの優先度
+      3,                  // タスクの優先度
       &UpdateReadNeHandle // タスクハンドル
     );
 
