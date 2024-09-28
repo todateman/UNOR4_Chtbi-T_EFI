@@ -68,7 +68,7 @@ float usecperdig = 0.0; // クランク1°当たりの時間(usec)
 int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
 uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
 float Ne_offset = 86.49;  // クランク角のオフセット(deg)を設定
-uint8_t INJ_STR_CA = 35;  // 燃料噴射タイミング角度(deg)を設定
+uint8_t INJ_STR_CA = 65;  // 燃料噴射タイミング角度(deg)を設定
 float gasml = 0.0;      // 積算燃料消費量(ml)
 float INJ_timems = 0.0; // 燃焼噴射時間(msec)
 float dispergas = 0.0;  // 燃費(km/l)
@@ -88,72 +88,72 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 75;
+    INJ_time = 70;
     IGN_CA = 45;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 75;
+    INJ_time = 70;
     IGN_CA = 45;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 75;
+    INJ_time = 70;
     IGN_CA = 45;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 75;
+    INJ_time = 70;
     IGN_CA = 55;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 85;
-    IGN_CA = 65;
+    INJ_time = 95;
+    IGN_CA = 60;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 85;
-    IGN_CA = 80;
+    INJ_time = 95;
+    IGN_CA = 67;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 85;
-    IGN_CA = 90;
+    INJ_time = 95;
+    IGN_CA = 80;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 85;
-    IGN_CA = 100;
+    INJ_time = 95;
+    IGN_CA = 95;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 85;
-    IGN_CA = 115;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 65;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 65;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 58;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 52;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 52;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 52;
-    IGN_CA = 120;
+    INJ_time = 95;
+    IGN_CA = 110;
   }
   else {
     INJ_time = 0;
     IGN_CA = 0;
   }
   if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 50;
-    IGN_CA = 10;
+    INJ_time = 100;
+    IGN_CA = 45;
   }
 }
 
