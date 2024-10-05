@@ -42,7 +42,7 @@ volatile uint16_t distance = 0;   // 走行距離積算(m)
 volatile unsigned long speed = 0; // 速度(km/h)
 volatile uint16_t tachoRpm = 0;   // エンジンの回転数(rpm)
 volatile uint8_t INJ_time = 0;    // インジェクタ噴射時間(*0.1ms) 速度向上のため10倍して表記(1.2ms->12)
-volatile int8_t  IGN_CA = 0;      // 点火時期[CA]
+volatile int16_t IGN_CA = 0;      // 点火時期[CA]
 volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
 volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
@@ -88,64 +88,64 @@ uint8_t row;
 // 点火MAP
 void INJ_IGN() {
   if (tachoRpm < 400) {
-    INJ_time = 70;
+    INJ_time = 90;
     IGN_CA = 45;
   }
   else if (tachoRpm < 800) {
-    INJ_time = 70;
+    INJ_time = 90;
     IGN_CA = 45;
   }
   else if (tachoRpm < 1200) {
-    INJ_time = 70;
+    INJ_time = 90;
     IGN_CA = 45;
   }
   else if (tachoRpm < 1600) {
-    INJ_time = 70;
+    INJ_time = 90;
     IGN_CA = 55;
   }
   else if (tachoRpm < 2000) {
-    INJ_time = 95;
-    IGN_CA = 60;
+    INJ_time = 90;
+    IGN_CA = 65;
   }
   else if (tachoRpm < 2400) {
-    INJ_time = 95;
-    IGN_CA = 67;
+    INJ_time = 90;
+    IGN_CA = 76;
   }
   else if (tachoRpm < 2800) {
-    INJ_time = 95;
-    IGN_CA = 80;
+    INJ_time = 90;
+    IGN_CA = 88;
   }
   else if (tachoRpm < 3200) {
-    INJ_time = 95;
-    IGN_CA = 95;
+    INJ_time = 90;
+    IGN_CA = 101;
   }
   else if (tachoRpm < 3600) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 115;
   }
   else if (tachoRpm < 4000) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 130;
   }
   else if (tachoRpm < 4400) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 146;
   }
   else if (tachoRpm < 4800) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 146;
   }
   else if (tachoRpm < 5200) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 146;
   }
   else if (tachoRpm < 5600) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 146;
   }
   else if (tachoRpm < 6000) {
-    INJ_time = 95;
-    IGN_CA = 110;
+    INJ_time = 90;
+    IGN_CA = 146;
   }
   else {
     INJ_time = 0;
