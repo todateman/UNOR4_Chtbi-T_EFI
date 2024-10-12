@@ -486,8 +486,6 @@ void mainloop(void *pvParameters) {
     xLastWakeTime = xTaskGetTickCount();
 
     if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
-      distancemm = 0;                           // 走行距離を0にする
-      distance = 0;                             // 走行距離を0にする
       fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
       Launch = false;                           // 走行開始OFF
       Serialsend();                             // シリアル送信
@@ -506,6 +504,7 @@ void mainloop(void *pvParameters) {
       starttime = 0;                              // 走行開始時間を0にする
       distancemm = 0;                             // 走行距離を0にする
       distance = 0;                               // 走行距離を0にする
+      gasml = 0.0;                                // 積算燃料消費量を0にする
     }
 
     INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
