@@ -219,7 +219,7 @@ void Routine() {
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
-      gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.2438;  // 燃料消費量(ml)を積算 2024.10.12の全国大会CN燃料結果で燃料消費量を補正
+      gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
       if (Encoder) {
         Serial.print("INJ_OFF: ");
         Serial.println(Ne_deg);
