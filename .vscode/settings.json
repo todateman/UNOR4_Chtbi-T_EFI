@@ -9,6 +9,7 @@
         "initializer_list": "cpp",
         "ranges": "cpp",
         "cstddef": "cpp",
-        "iterator": "cpp"
+        "iterator": "cpp",
+        "*.tcc": "cpp"
     }
 }
