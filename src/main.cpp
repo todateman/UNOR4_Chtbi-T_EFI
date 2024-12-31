@@ -5,18 +5,14 @@
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
-#include "fastestDigitalRW.hpp"
 #include "AGTimerR4.h"
 #include <Arduino_FreeRTOS.h>
 #include <Wire.h>
 #include <U8x8lib.h>
-#include "AS5600.h"
 
 //U8X8_SH1107_64X128_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 1.3"
 U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
 
-// 磁気エンコーダタスクのハンドル
-TaskHandle_t UpdateReadNeHandle;
 // ステータス出力タスクのハンドル
 TaskHandle_t UpdatemainloopHandle;
 
@@ -31,8 +27,6 @@ volatile unsigned long speedBefore = 0;     // 車軸パルスセンサーの前
 volatile unsigned long speedAfter = 0;      // 車軸パルスセンサーの今回の反応時の時間
 volatile unsigned long speedWidth = 0;      // 車軸一回転の時間　speedAfter - speedBefore
 volatile float Ne_deg = 0.0;                // 磁気エンコーダのクランク角(deg)
-volatile uint16_t Ne_deg_raw = 0;           // 磁気エンコーダの生値
-volatile int8_t now_Revolution = 0;         // クランクシャフトの回転数(周目)
 volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
 volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
@@ -48,34 +42,32 @@ volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 volatile bool G_Pulse = false;    // カムパルス信号
-volatile bool NeReset = false;    // クランク回転数リセットフラグ
 bool OLED = false;                // OLED有効/無効
-bool Encoder = false;             // AS5600磁気エンコーダ有効/無効
+bool Encoder = false;             // MA735磁気エンコーダ有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
 bool Serial1_ON = true;           // Serial1(メーター・ロガーへのシリアル)有効/無効
 
-uint8_t HW_IN = 2;      // 駆動軸パルスセンサ入力・外部割込み
-uint8_t G_IN = 3;       // カム角センサ入力・外部割込み
-uint8_t STR_IN = 5;     // スタータボタン入力
-uint8_t ENGOFF_IN = 6;  // キルスイッチ入力
-uint8_t RESET_IN = 7;   // 走行距離・燃費リセットボタン入力
-uint8_t SD_IN = 9;      // microSD挿入チェック
-uint8_t INJ_OUT = A0;   // インジェクタ出力
-uint8_t IGN_OUT = A1;   // イグニッション出力
-uint8_t STR_OUT = A2;   // スタータ出力
-uint8_t DISRESET_OUT = A3;      // リセット状態出力(リセットされていればOFF)
-float usecperdig = 0.0; // クランク1°当たりの時間(usec)
-int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
-uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
-float Ne_offset = 86.49;  // クランク角のオフセット(deg)を設定
-uint8_t INJ_STR_CA = 65;  // 燃料噴射タイミング角度(deg)を設定
-float gasml = 0.0;      // 積算燃料消費量(ml)
-float INJ_timems = 0.0; // 燃焼噴射時間(msec)
-float dispergas = 0.0;  // 燃費(km/l)
-unsigned long starttime = 0;    // 走行開始時間(msec)
-uint16_t worktime = 0;          // 走行時間(sec)
-bool Launch = false;            // 走行開始状態
-const uint8_t Routine_Cycle = 24;   // 燃料噴射・点火制御の実行サイクル(usec)
+uint8_t NE_A_IN = 2;              // P105 クランクAパルスセンサ入力・外部割込み
+uint8_t WH_IN = 3;                // P104 駆動軸パルスセンサ入力・外部割込み
+uint8_t NE_Z_IN = 4;              // P103 クランクZパルスセンサ入力・外部割込み
+uint8_t G_IN = 5;                 // P102 カム角センサ入力・外部割込み
+uint8_t STR_IN = 6;               // P106 スタータボタン入力
+uint8_t ENGOFF_IN = 7;            // P107 キルスイッチ入力
+uint8_t SD_IN = 9;                // P303 microSD挿入チェック
+uint8_t INJ_OUT = A0;             // P014 インジェクタ出力
+uint8_t IGN_OUT = A1;             // P000 イグニッション出力
+uint8_t STR_OUT = A2;             // P001 スタータ出力
+uint8_t DISRESET_OUT = A3;        // P002 リセット状態出力(リセットされていればOFF)
+float usecperdig = 0.0;           // クランク1°当たりの時間(usec)
+uint16_t perimeter = 1548;        // 車軸1回転当たりの周長(mm)
+uint8_t INJ_STR_CA = 65;          // 燃料噴射タイミング角度(deg)を設定
+float gasml = 0.0;                // 積算燃料消費量(ml)
+float INJ_timems = 0.0;           // 燃焼噴射時間(msec)
+float dispergas = 0.0;            // 燃費(km/l)
+unsigned long starttime = 0;      // 走行開始時間(msec)
+uint16_t worktime = 0;            // 走行時間(sec)
+bool Launch = false;              // 走行開始状態
+const uint8_t Routine_Cycle = 24; // 燃料噴射・点火制御の実行サイクル(usec)
 
 const uint8_t chipSelect = 10;  // 10ピンをSSとする
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
@@ -151,7 +143,7 @@ void INJ_IGN() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if ((R_PORT1->PIDR_b.PIDR6) == 0){  // スタータボタン(D6, P106)を押したとき
     INJ_time = 100;
     IGN_CA = 45;
   }
@@ -171,7 +163,7 @@ void INJ_IGN_SD() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if ((R_PORT1->PIDR_b.PIDR6) == 0){  // スタータボタン(D6, P106)を押したとき
     INJ_time = 50;
     IGN_CA = 0;
   }
@@ -208,17 +200,44 @@ void Cycle_Reset() {
   }
 }
 
+// カム角センサーから回転数計算
+void tachometer() {
+  tachoAfter = micros();  // 現在の時刻を記録
+  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
+  tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
+  if (!Encoder) {              // 磁気エンコーダが無効の場合
+    Ne_deg = 0.0;             // クランク角を上死点にリセット
+    tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
+    usecperdig = tachoWidth / 720.0;  // クランク1°当たりの時間(usec)
+    Cycle_Reset();            // エンジン運転のリセット処理
+  }
+}
+
 // 燃料噴射・点火制御
 void Routine() {
-  Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
+  if (!Encoder) {                       // 磁気エンコーダが無効の場合
+    Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
+  }
+  
+  if ((R_PORT1->PIDR_b.PIDR2) == 0){    // カムパルス(D5, P102)がONの場合
+    if (!G_Pulse) {
+      tachometer();
+      G_Pulse = true;
+    }
+  }
+  if ((R_PORT1->PIDR_b.PIDR2) == 1){    // カムパルス(D5, P102)がOFFの場合
+    if (G_Pulse) {
+      G_Pulse = false;
+    }
+  }
 
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
     if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
-      timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
+      timeNow_INJ_OFF = micros();     // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      INJ_Status = 1;               // 噴射無効ステータス
+      R_PORT0->PODR_b.PODR14 = 1;     // 噴射OFF
+      INJ_Status = 1;                 // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
       if (Encoder) {
         Serial.print("INJ_OFF: ");
@@ -232,8 +251,8 @@ void Routine() {
     if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
       timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      IGN_Status = 1;               // 点火無効ステータス
+      R_PORT0->PODR_b.PODR0 = 1;      // 点火OFF
+      IGN_Status = 1;                 // 点火無効ステータス
       if (Encoder) {
         Serial.print("IGN_OFF: ");
         Serial.println(Ne_deg);
@@ -241,26 +260,26 @@ void Routine() {
     }
   }
 
-  if (digitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
+  if ((R_PORT1->PIDR_b.PIDR7) == 0){  // キルスイッチピン(D7, P107)がOFFの場合
     // スタータボタンを押したとき
-    if (digitalRead(STR_IN) == LOW){
-      //digitalWrite(STR_OUT, LOW);  // スタータON
-      fastestDigitalWrite(STR_OUT, LOW);  // スタータON
+    if ((R_PORT1->PIDR_b.PIDR6) == 0){  // スタータボタン(D6, P106)を押したとき
+      //digitalWrite(STR_OUT, LOW);       // スタータON
+      R_PORT0->PODR_b.PODR1 = 0;          // スタータON
       //Serial.println("STR_ON");
       Launch = true;                      // 走行開始ON
     }
     else {
       //digitalWrite(STR_OUT, HIGH);  // スタータOFF
-      fastestDigitalWrite(STR_OUT, HIGH);  // スタータOFF
+      R_PORT0->PODR_b.PODR1 = 1;      // スタータOFF
     }
 
     // 噴射OFFステータス時
     if ( INJ_Status == 1 && !INJ_His ) {
-      if ( Ne_deg >= INJ_STR_CA ){             // 上死点から燃料噴射タイミングの角度に達したら
+      if ( Ne_deg >= INJ_STR_CA ){      // 上死点から燃料噴射タイミングの角度に達したら
         timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
         INJ_His = true;                   // 噴射履歴あり
         //digitalWrite(INJ_OUT, LOW);     // 噴射ON
-        fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+        R_PORT0->PODR_b.PODR14 = 0;       // 噴射ON
         INJ_Status = 2;                   // 噴射ONステータス
         if (Encoder) {
           Serial.print("INJ_ON:  ");
@@ -276,7 +295,7 @@ void Routine() {
         timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
         IGN_His = true;                   // 点火履歴あり
         //digitalWrite(IGN_OUT, LOW);     // 点火ON
-        fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+        R_PORT0->PODR_b.PODR0 = 0;        // 点火ON
         IGN_Status = 2;                   // 点火ONステータス
         if (Encoder) {
           Serial.print("IGN_ON:  ");
@@ -315,14 +334,8 @@ void Serialsend() {
       Serial.print(")");
     }
     if (Encoder) {
-//      Serial.print("\t");
-//      Serial.print(Ne_deg_raw);
-      Serial.print("\t");
-      Serial.print(now_Revolution);
       Serial.print("\t");
       Serial.print(G_Pulse, HEX);
-      Serial.print("\t");
-      Serial.print(NeReset, HEX);
     }
     Serial.println();
   }
@@ -367,7 +380,7 @@ void Serialsend() {
 }
 
 // 車軸パルスから走行距離・速度を算出
-void HW_PULSE() {
+void WH_PULSE() {
   speedAfter = micros();  // 現在の時刻を記録
   speedWidth = speedAfter - speedBefore;  // 前回と今回の時間の差(車軸1回転当たりの時間 usec)を計算
   speed = 3600 * perimeter / speedWidth;  // 速度(km/h = 3600 * km/sec = 3600 * mm/usec)を計算
@@ -376,53 +389,21 @@ void HW_PULSE() {
   distance = distancemm * 0.001;   //走行距離(m)を積算
 }
 
-// カム角センサーから回転数計算
-void tachometer() {
-  tachoAfter = micros();  // 現在の時刻を記録
-  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
-  tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
-  if (Encoder){             // 磁気エンコーダが有効の場合
-    G_Pulse = true;           // カムパルス信号ON
-  } else {                  // 磁気エンコーダが無効の場合
-    Ne_deg = 0.0;             // クランク角を上死点にリセット
-    tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-    usecperdig = tachoWidth / 720.0;  // クランク1°当たりの時間(usec)
-    Cycle_Reset();            // エンジン運転のリセット処理
-  }
-}
-
 // クランク角の読み取り
-void ReadNe(void *pvParameters){
-  uint16_t _Ne_deg_raw = 0;
-  for (;;) {
-    TickType_t xLastWakeTime;
-    xLastWakeTime = xTaskGetTickCount();
-    Ne_deg_raw =  as5600.readAngle();               // 磁気エンコーダ生値(0-4095)を取得
+void ReadNe(){
+  Ne_deg += 0.3515625;                      // 1パルス毎にクランク角を360°/1024=0.3515625°ずつ加算
 
-    Ne_deg = Ne_deg_raw * 0.087890625 + 360.0 * (now_Revolution % 2);   // 累積クランク角 = 0～359.99° + 360° * "周目"
-                                                                        // 偶数周では0, 奇数周では1を代入し、クランク角を0～720°の範囲に納める
-                                                                        // (リセット予約タイミングの遅れ対策)
-    tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
-    usecperdig = 1000.0 * 1000.0 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
-
-    if (_Ne_deg_raw - Ne_deg_raw > 2048) {          // クランク上死点を通過したら
-      if (G_Pulse) {                                  // カムパルス信号ONなら、圧縮→膨張サイクル
-        now_Revolution++;                               // 現在の"周目"を更新
-        G_Pulse = false;                                // カムパルス信号をリセット
-        NeReset = true;                                 // クランク回転数リセット有効
-        goto label_goto;                                // 直後に排気→吸気サイクル判定しないようにgotoを使用
-      }
-      if (NeReset) {                                  // クランク回転数リセット有効なら、排気→吸気サイクル
-        now_Revolution = 0;                             // "0周目"にリセット  
-        NeReset = false;                                // クランク回転数リセット無効
-        Cycle_Reset();                                  // エンジン運転のリセット処理
-      }
+  if ((R_PORT1->PIDR_b.PIDR3) == 0 ) {      // クランクZパルス(D4, P103)がONの場合 = クランク1回転の場合
+    tachoAfter = micros();                    // 現在の時刻を記録
+    tachoWidth = tachoAfter - tachoBefore;    // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
+    tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
+    tachoRpm = (60000000.0 / tachoWidth);     //クランクの回転数[rpm]を計算
+    
+    if (Ne_deg >= 720.0 && G_Pulse) {         // クランク角が720°以上&GセンサONの場合
+      Ne_deg = 0.0;                             // クランク角を0°にリセット
+      Cycle_Reset();                            // エンジン運転のリセット処理
     }
-    label_goto:
-    _Ne_deg_raw = Ne_deg_raw;                         // 次回比較する磁気エンコーダ生値を記録
-    //Serial.println(Ne_deg);
-    vTaskDelayUntil(&xLastWakeTime, 1);               // 1msec停止
-  } 
+  }
 }
 
 // 点火MAPファイル読み込み
@@ -485,21 +466,15 @@ void mainloop(void *pvParameters) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
 
-    if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
-      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-      Launch = false;                           // 走行開始OFF
-      Serialsend();                             // シリアル送信
-      delay(1000);
-    }
     if (Launch) {                               // 走行開始ONの場合
-      fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
+      R_PORT0->PODR_b.PODR2 = 0;                  // リセット状態出力をONにする(リセット忘れ防止のため)
       if (starttime == 0) {                       // 走行時間が0の場合
         starttime = millis();                     // 走行開始時間を現在の時間にする
       }
       worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
     }
     else {
-      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+      R_PORT0->PODR_b.PODR2 = 1;                  // リセット状態出力をOFFにする
       worktime = 0;                               // 走行時間を0にする
       starttime = 0;                              // 走行開始時間を0にする
       distancemm = 0;                             // 走行距離を0にする
@@ -533,11 +508,12 @@ void setup() {
   Wire.begin();
   Wire.setClock(400000); // 400kHz I2C clock.
 
-  pinMode(HW_IN, INPUT_PULLUP);
+  pinMode(NE_A_IN, INPUT_PULLUP);
+  pinMode(WH_IN, INPUT_PULLUP);
+  pinMode(NE_Z_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
   pinMode(ENGOFF_IN, INPUT_PULLUP);
-  pinMode(RESET_IN, INPUT_PULLUP);
   pinMode(SD_IN, INPUT_PULLUP);
   pinMode(INJ_OUT, OUTPUT);
   pinMode(IGN_OUT, OUTPUT);
@@ -612,43 +588,13 @@ void setup() {
     u8x8.setInverseFont(0);
   }
 
-  // AS5600磁気エンコーダの接続確認
-  as5600.begin();
-  //as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  // エンコーダの回転方向を反時計回りに設定 ※DIRピンをGNDに落とす
-  as5600.setOffset(Ne_offset);                    // クランク角のオフセットを設定
-  //Serial.print(as5600.isConnected());
-  //Serial.print(as5600.detectMagnet());
-  //Serial.print(as5600.magnetTooWeak());
-  //Serial.println(as5600.magnetTooStrong());
-  Encoder = as5600.isConnected()                  // AS5600を認識している
-            && as5600.detectMagnet();             // 磁石を検知している
-            // && !as5600.magnetTooWeak()         // 磁力が弱すぎない
-            // && !as5600.magnetTooStrong();      // 磁力が強すぎない
-  if (Encoder) {
-    // 磁気エンコーダのタスク
-    xTaskCreate(
-      ReadNe,             // タスク関数
-      "ReadNe",           // タスクの名前
-      128,                // タスクのスタックサイズ
-      NULL,               // タスク関数に渡す引数
-      3,                  // タスクの優先度
-      &UpdateReadNeHandle // タスクハンドル
-    );
 
-    as5600.resetPosition();                       // クランク回転数(周目)を初期化
-  }
-  else {
-    Serial.println(F("Don't use AS5600"));
+  if (Encoder) {
+    attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe,   FALLING);   // 外部割り込み（NE_A_IN）
   }
   //Wire.end();
   
-  attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING);   // 外部割り込み（HW_IN）
-  if (Encoder) {                                                      // エンコーダ有効の場合
-    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, RISING);  // OFFタイミングで外部割り込み（G_IN）
-  }
-  else {
-    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // ONタイミングで外部割り込み（G_IN）
-  }
+  attachInterrupt(digitalPinToInterrupt(WH_IN), WH_PULSE,   FALLING);   // 外部割り込み（WH_IN）
 
 
   AGTimer.init(Routine_Cycle, Routine);  // 24use周期で燃料噴射・点火制御を実行
