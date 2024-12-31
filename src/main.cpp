@@ -16,8 +16,6 @@ U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
 // ステータス出力タスクのハンドル
 TaskHandle_t UpdatemainloopHandle;
 
-AS5600 as5600;             // 磁気エンコーダ
-
 uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
 
 volatile unsigned long tachoBefore = 0;     // カム角センサーの前回の反応時の時間
@@ -43,7 +41,7 @@ volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 volatile bool G_Pulse = false;    // カムパルス信号
 bool OLED = false;                // OLED有効/無効
-bool Encoder = false;             // MA735磁気エンコーダ有効/無効
+bool Encoder = true;              // MA735磁気エンコーダ有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
 bool Serial1_ON = true;           // Serial1(メーター・ロガーへのシリアル)有効/無効
 
@@ -81,63 +79,63 @@ uint8_t row;
 void INJ_IGN() {
   if (tachoRpm < 400) {
     INJ_time = 90;
-    IGN_CA = 45;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 800) {
     INJ_time = 90;
-    IGN_CA = 45;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 1200) {
     INJ_time = 90;
-    IGN_CA = 45;
+    IGN_CA = 0;
   }
   else if (tachoRpm < 1600) {
     INJ_time = 90;
-    IGN_CA = 55;
+    IGN_CA = 2;
   }
   else if (tachoRpm < 2000) {
     INJ_time = 90;
-    IGN_CA = 65;
+    IGN_CA = 4;
   }
   else if (tachoRpm < 2400) {
     INJ_time = 90;
-    IGN_CA = 76;
+    IGN_CA = 6;
   }
   else if (tachoRpm < 2800) {
     INJ_time = 90;
-    IGN_CA = 88;
+    IGN_CA = 10;
   }
   else if (tachoRpm < 3200) {
     INJ_time = 90;
-    IGN_CA = 101;
+    IGN_CA = 11;
   }
   else if (tachoRpm < 3600) {
     INJ_time = 90;
-    IGN_CA = 115;
+    IGN_CA = 14;
   }
   else if (tachoRpm < 4000) {
     INJ_time = 90;
-    IGN_CA = 130;
+    IGN_CA = 17;
   }
   else if (tachoRpm < 4400) {
     INJ_time = 90;
-    IGN_CA = 146;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 4800) {
     INJ_time = 90;
-    IGN_CA = 146;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 5200) {
     INJ_time = 90;
-    IGN_CA = 146;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 5600) {
     INJ_time = 90;
-    IGN_CA = 146;
+    IGN_CA = 20;
   }
   else if (tachoRpm < 6000) {
     INJ_time = 90;
-    IGN_CA = 146;
+    IGN_CA = 20;
   }
   else {
     INJ_time = 0;
@@ -145,7 +143,7 @@ void INJ_IGN() {
   }
   if ((R_PORT1->PIDR_b.PIDR6) == 0){  // スタータボタン(D6, P106)を押したとき
     INJ_time = 100;
-    IGN_CA = 45;
+    IGN_CA = 0;
   }
 }
 
