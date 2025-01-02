@@ -68,7 +68,7 @@ bool Launch = false;              // 走行開始状態
 const uint8_t Routine_Cycle = 24; // 燃料噴射・点火制御の実行サイクル(usec)
 
 // 2025.01.01時点でRMC-M4A1はPlatformIOに未対応のため、本体のmicroSDは使用しない
-// ArduinoSPI SPI(MISO1, MOSI1, SCK1, FORCE_SPI1_MODE);  // RMC-RA4M1のmicroSD用SPIを選択(SPIの各端子はpins_arduino.hで定義)
+ArduinoSPI SPI(MISO1, MOSI1, SCK1, FORCE_SPI1_MODE);  // RMC-RA4M1のmicroSD用SPIを選択(SPIの各端子はpins_arduino.hで定義)
 // ArduinoSPI SPI(MISO, MOSI, SCK, FORCE_SPI_MODE);   // Arduino UNO R4のSPIを使用(MISO=12,MOSI=11,SCK=13)
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
 bool SDMAP = false;
@@ -542,7 +542,8 @@ void setup() {
   delay(100);
   digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
 
-  /* 2025.01.01時点でRMC-M4A1はPlatformIOに未対応のため、本体のmicroSDは使用しない
+  // 2025.01.01時点でRMC-M4A1はPlatformIOに未対応のため、本体のmicroSDは使用しない
+  
   if ( SD.begin( 2e6, CS1 ) ) {       // microSDを認識させる。
                                       //通信速度Hz(e6=10の6乗), microSDのCS1(pins_arduino.hで定義) Arduino UNO R4は「CS」にする
     delay(100);
@@ -562,7 +563,7 @@ void setup() {
     digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
     Serial.println(F("Don't use SD card"));
   }
-  */
+  
 
   // OLEDの接続確認
   Wire.beginTransmission(0x3C);
