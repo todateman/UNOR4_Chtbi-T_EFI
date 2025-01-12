@@ -68,6 +68,10 @@ unsigned long starttime = 0;      // 走行開始時間(msec)
 uint16_t worktime = 0;            // 走行時間(sec)
 bool Launch = false;              // 走行開始状態
 const uint8_t Routine_Cycle = 24; // 燃料噴射・点火制御の実行サイクル(usec)
+float Stoichi = 11.69;            // 目標空燃比(理想空燃比を設定する場合、ガソリン：14.70, CN燃料：13.75
+                                  //           出力空燃比を設定する場合、ガソリン：12.50, CN燃料：11.69付近？)
+float _Stoichi = 0.0;             // 理想空燃比の逆数(燃料増量係数計算用)
+float Fuel_boost_factor = 1.0;    // 燃料増量係数
 
 // framework-arduinorenesas-uno 1.3.2ベースのライブラリではSPI.cppで宣言済みのため不要なのでコメントアウト
 // ArduinoSPI SPI(MISO1, MOSI1, SCK1, FORCE_SPI1_MODE);   // RMC-RA4M1のmicroSD用SPIを選択(SPIの各端子はpins_arduino.hで定義)
@@ -218,7 +222,8 @@ void tachometer() {
 // AFRセンサーの値を取得
 void getAFR() {
   uint16_t ad = R_ADC0->ADDR[21];                   // A4ポート(P101, AN021)のA/D変換結果を取得
-  AFR_value = map (ad, 0, 16383, 100, 200) * 0.1;   // A/D変換結果を10.0-20.0のAir Fuel Ratioに変換
+  AFR_value = map (ad, 0, 16383, 1000, 2000) * 0.01;  // A/D変換結果を10.0-20.0の空燃比に変換
+  Fuel_boost_factor = AFR_value * _Stoichi;           // 目標空燃比から求める燃料増量係数
 }
 
 // 燃料噴射・点火制御
@@ -245,7 +250,7 @@ void Routine() {
 
   // 噴射ONステータス時
   if ( INJ_Status == 2 ) {
-    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
+    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 * Fuel_boost_factor ){  // 噴射開始から噴射時間(燃料増量係数で補正)が経過したら
       timeNow_INJ_OFF = micros();     // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       R_PORT0->PODR_b.PODR14 = 1;     // 噴射OFF
@@ -606,6 +611,7 @@ void setup() {
   }
 
   if (AFR) {  // A/Fセンサが接続されていれば
+    _Stoichi = 1 / Stoichi;                     // 理想空燃比の逆数を計算
     R_PFS->PORT[1].PIN[1].PmnPFS_b.PMR = 0;     // A4ポート(P101, AN021)を入力に設定
     R_PFS->PORT[1].PIN[1].PmnPFS_b.ASEL = 1;    // A4ポート(P101, AN021)をアナログ入力ポートに設定 
     R_PFS->PORT[1].PIN[1].PmnPFS_b.PMR = 1;     // 0:汎用入出力 1:周辺機能用
