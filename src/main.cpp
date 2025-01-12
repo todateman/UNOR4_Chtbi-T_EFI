@@ -44,6 +44,7 @@ volatile bool G_Pulse = false;    // カムパルス信号
 bool OLED = false;                // OLED有効/無効
 bool Encoder = true;              // MA735磁気エンコーダ有効/無効
 bool AFR = false;                 // A/Fセンサ有効/無効
+bool Increase_Fuel = false;       // 燃料増量係数有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
 bool Serial1_ON = true;           // Serial1(メーター・ロガーへのシリアル)有効/無効
 
@@ -222,8 +223,11 @@ void tachometer() {
 // AFRセンサーの値を取得
 void getAFR() {
   uint16_t ad = R_ADC0->ADDR[21];                   // A4ポート(P101, AN021)のA/D変換結果を取得
-  AFR_value = map (ad, 0, 16383, 1000, 2000) * 0.01;  // A/D変換結果を10.0-20.0の空燃比に変換
-  Fuel_boost_factor = AFR_value * _Stoichi;           // 目標空燃比から求める燃料増量係数
+  AFR_value = map (ad, 0, 16383, 1000, 2000) * 0.01;  // A/D変換結果を10.00-20.00の空燃比に変換
+  if (Increase_Fuel) {                                // 燃料増量係数の補正が有効な場合
+    Fuel_boost_factor = AFR_value * _Stoichi;           // 目標空燃比から求める燃料増量係数を計算
+  }
+
 }
 
 // 燃料噴射・点火制御
