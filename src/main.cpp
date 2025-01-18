@@ -424,18 +424,22 @@ void WH_PULSE() {
 
 // クランク角の読み取り
 void ReadNe(){
-  Ne_deg += 0.3515625;                      // 1パルス毎にクランク角を360°/1024=0.3515625°ずつ加算
+  if ((R_PORT3->PIDR_b.PIDR4) == 0 ) {      // クランクBパルス(D8, P304)がOFFの場合
+    Ne_deg += 0.3515625;                      // 1パルス毎にクランク角を360°/1024=0.3515625°ずつ加算
+  } else {                                  // クランクBパルス(D8, P304)がONの場合
+    Ne_deg -= 0.3515625;                      // 1パルス毎にクランク角を360°/1024=0.3515625°ずつ減算   
+  }
 
-  if ((R_PORT3->PIDR_b.PIDR3) == 0 ) {      // クランクZパルス(D9, P303)がONの場合 = クランク1回転の場合
+  if ((R_PORT3->PIDR_b.PIDR3) == 1 ) {      // クランクZパルス(D9, P303)がONの場合 = クランク1回転の場合
     tachoAfter = micros();                    // 現在の時刻を記録
     tachoWidth = tachoAfter - tachoBefore;    // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
     tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
     tachoRpm = (60000000.0 / tachoWidth);     //クランクの回転数[rpm]を計算
     
-    if (Ne_deg > 360.0 && G_Pulse_Flag) {    // クランク角が720°以上&Gセンサ立ち上がりフラグONの場合
-      Ne_deg = 0.0;                             // クランク角を0°にリセット
-      G_Pulse_Flag = false;                     // Gセンサの立ち上がりフラグをOFF
-      Cycle_Reset();                            // エンジン運転のリセット処理
+    if (Ne_deg > 360.0 && G_Pulse_Flag) {    // クランク角が360°より大きい&カムパルスセンサ立ち上がりフラグONの場合
+      Ne_deg = 0.0;                            // クランク角を0°にリセット
+      G_Pulse_Flag = false;                    // カムパルスセンサの立ち上がりフラグをOFF
+      Cycle_Reset();                           // エンジン運転のリセット処理
     }
   }
 }
@@ -546,9 +550,9 @@ void setup() {
   pinMode(WH_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
-  pinMode(ENGOFF_IN, INPUT_PULLUP);
-  pinMode(NE_B_IN, INPUT_PULLUP);
-  pinMode(NE_Z_IN, INPUT_PULLUP);
+  pinMode(ENGOFF_IN, INPUT);
+  pinMode(NE_B_IN, INPUT);
+  pinMode(NE_Z_IN, INPUT);
   pinMode(INJ_OUT, OUTPUT);
   pinMode(IGN_OUT, OUTPUT);
   pinMode(STR_OUT, OUTPUT);
