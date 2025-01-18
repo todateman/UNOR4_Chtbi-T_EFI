@@ -41,6 +41,7 @@ volatile float AFR_value = 0.0;   // A/Fセンサーの値
 volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 volatile bool G_Pulse = false;    // カムパルス信号
+volatile bool G_Pulse_Flag = false;  // カムパルス信号の立ち上がりフラグ
 bool OLED = false;                // OLED有効/無効
 bool Encoder = true;              // MA735磁気エンコーダ有効/無効
 bool AFR = false;                 // A/Fセンサ有効/無効
@@ -244,6 +245,7 @@ void Routine() {
     if (!G_Pulse) {
       tachometer();
       G_Pulse = true;
+      G_Pulse_Flag = true;
     }
   }
   if ((R_PORT1->PIDR_b.PIDR2) == 1){    // カムパルス(D5, P102)がOFFの場合
@@ -356,7 +358,8 @@ void Serialsend() {
     }
     if (Encoder) {
       Serial.print("\t");
-      Serial.print(G_Pulse, HEX);
+      //Serial.print(G_Pulse, HEX);
+      Serial.print(G_Pulse_Flag, HEX);
     }
     if (AFR) {                            // A/Fセンサが有効の場合
       Serial.print("\t");
@@ -429,8 +432,9 @@ void ReadNe(){
     tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
     tachoRpm = (60000000.0 / tachoWidth);     //クランクの回転数[rpm]を計算
     
-    if (Ne_deg >= 720.0 && G_Pulse) {         // クランク角が720°以上&GセンサONの場合
+    if (Ne_deg > 360.0 && G_Pulse_Flag) {    // クランク角が720°以上&Gセンサ立ち上がりフラグONの場合
       Ne_deg = 0.0;                             // クランク角を0°にリセット
+      G_Pulse_Flag = false;                     // Gセンサの立ち上がりフラグをOFF
       Cycle_Reset();                            // エンジン運転のリセット処理
     }
   }
@@ -572,6 +576,7 @@ void setup() {
   delay(100);
   digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
 
+#ifdef rmc_ra4m1_20
   if ( SD.begin( 2e6, CS1 ) ) {       // microSDを認識させる。
                                       //通信速度Hz(e6=10の6乗), RMC-RA4M1本体のmicroSDはCS1(pins_arduino.hで定義) Arduino UNO R4は「CS」にする
     delay(100);
@@ -591,6 +596,7 @@ void setup() {
     digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
     Serial.println(F("Don't use SD card"));
   }
+#endif  
 
   // OLEDの接続確認
   Wire.beginTransmission(0x3C);
@@ -627,7 +633,7 @@ void setup() {
 
 
   if (Encoder) {
-    attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe, FALLING);   // 外部割り込み（NE_A_IN）
+    attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe, RISING);   // 外部割り込み（NE_A_IN）
   }
   //Wire.end();
   
