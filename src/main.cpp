@@ -151,7 +151,7 @@ void INJ_IGN() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if (fastestDigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 100;
     IGN_CA = 45;
   }
@@ -171,7 +171,7 @@ void INJ_IGN_SD() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (digitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if (fastestDigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 50;
     IGN_CA = 0;
   }
@@ -241,9 +241,9 @@ void Routine() {
     }
   }
 
-  if (digitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
+  if (fastestDigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
     // スタータボタンを押したとき
-    if (digitalRead(STR_IN) == LOW){
+    if (fastestDigitalRead(STR_IN) == LOW){
       //digitalWrite(STR_OUT, LOW);  // スタータON
       fastestDigitalWrite(STR_OUT, LOW);  // スタータON
       //Serial.println("STR_ON");
@@ -485,7 +485,7 @@ void mainloop(void *pvParameters) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
 
-    if (digitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
+    if (fastestDigitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
       fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
       Launch = false;                           // 走行開始OFF
       Serialsend();                             // シリアル送信
@@ -564,7 +564,7 @@ void setup() {
   */
   digitalWrite(DISRESET_OUT, LOW);    // DISRESET_OUT ON
 
-  if (digitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
+  if (fastestDigitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
     delay(100);
     digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
 
