@@ -8,11 +8,6 @@
 #include "fastestDigitalRW.hpp"
 #include "AGTimerR4.h"
 #include <Arduino_FreeRTOS.h>
-#include <Wire.h>
-#include <U8x8lib.h>
-
-//U8X8_SH1107_64X128_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 1.3"
-U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
 
 // ステータス出力タスクのハンドル
 TaskHandle_t UpdatemainloopHandle;
@@ -44,7 +39,8 @@ volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 volatile bool G_Pulse = false;    // カムパルス信号
 volatile bool G_Pulse_Flag = false;  // カムパルス信号の立ち上がりフラグ
 bool OLED = false;                // OLED有効/無効
-bool Encoder = true;              // MA735磁気エンコーダ有効/無効
+bool Encoder = true;              // MA735磁気エンコーダパルス有効/無効
+bool MA735SPI = false;            // MA735磁気エンコーダSPI有効/無効
 bool AFR = false;                 // A/Fセンサ有効/無効
 bool Increase_Fuel = false;       // 燃料増量係数有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
@@ -57,6 +53,7 @@ uint8_t STR_IN = 6;               // P106 スタータボタン入力
 uint8_t ENGOFF_IN = 7;            // P107 キルスイッチ入力
 uint8_t NE_B_IN = 8;              // P304 クランクBパルスセンサ入力
 uint8_t NE_Z_IN = 9;              // P303 クランクZパルスセンサ入力
+uint8_t MA735_CS = 10;            // P112 MA735磁気エンコーダSPIチップセレクト
 uint8_t INJ_OUT = A0;             // P014 インジェクタ出力
 uint8_t IGN_OUT = A1;             // P000 イグニッション出力
 uint8_t STR_OUT = A2;             // P001 スタータ出力
@@ -79,6 +76,8 @@ float Fuel_boost_factor = 1.0;    // 燃料増量係数
 // framework-arduinorenesas-uno 1.3.2ベースのライブラリではSPI.cppで宣言済みのため不要なのでコメントアウト
 // ArduinoSPI SPI(MISO1, MOSI1, SCK1, FORCE_SPI1_MODE);   // RMC-RA4M1のmicroSD用SPIを選択(SPIの各端子はpins_arduino.hで定義)
 // ArduinoSPI SPI(MISO, MOSI, SCK, FORCE_SPI_MODE);       // Arduino UNO R4のSPIを使用(MISO=12,MOSI=11,SCK=13)
+SPISettings MA735settings = SPISettings(12000000, MSBFIRST, SPI_MODE0);    // MA735磁気エンコーダSPIの設定
+
 String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
 bool SDMAP = false;
 uint16_t rpm1[20]; //要素記憶用の配列を作成
@@ -237,8 +236,17 @@ void Routine() {
   if (AFR) {                            // A/Fセンサが有効の場合
     getAFR();                             // A/Fセンサの値を取得
   }
+  
+  if (MA735SPI) {                       // MA735磁気エンコーダSPIが有効の場合
+    fastestDigitalWrite(MA735_CS, LOW);   // SPI通信開始
+    SPI.beginTransaction(MA735settings);  // SPI通信開始
+    uint16_t data = SPI.transfer16(0);    // 16bit(0-65535)で角度を取得
+    SPI.endTransaction();                 // SPI通信終了
+    fastestDigitalWrite(MA735_CS, HIGH);  // SPI通信終了
+    Ne_deg = (float)data / 65535 * 360;   // クランク角(deg)に変換
+  }
 
-  if (!Encoder) {                       // 磁気エンコーダが無効の場合
+  if (!Encoder) {                       // 磁気エンコーダパルスが無効の場合
     Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
   }
   
@@ -389,27 +397,6 @@ void Serialsend() {
     }
     Serial1.println();
   }
-
-  if(OLED) {                                  // OLEDが接続されていれば
-    u8x8.setCursor(3, 0);
-    u8x8.print(tachoRpm);
-    u8x8.print("   ");
-    u8x8.setCursor(3, 1);
-    u8x8.print(INJ_timems, 1);
-    u8x8.setCursor(12, 1);
-    u8x8.print(IGN_CA);
-    u8x8.print(" ");
-    u8x8.setCursor(3, 2);
-    u8x8.print(speed);
-    u8x8.print(" ");
-    u8x8.setCursor(12, 2);
-    u8x8.print(distance);
-    u8x8.setCursor(3, 3);
-    u8x8.print(gasml, 1);
-    u8x8.setCursor(12, 3);
-    u8x8.print(dispergas, 1);
-    //u8x8.print(" ");
-  }
 }
 
 // 車軸パルスから走行距離・速度を算出
@@ -543,14 +530,11 @@ void setup() {
   Serial.begin(115200);  // シリアル通信を開始
   Serial1.begin(115200);  // シリアル通信を開始
 
-  Wire.begin();
-  Wire.setClock(400000); // 400kHz I2C clock.
-
-  pinMode(NE_A_IN, INPUT_PULLUP);
   pinMode(WH_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
-  pinMode(ENGOFF_IN, INPUT);
+  pinMode(ENGOFF_IN, INPUT_PULLUP);
+  pinMode(NE_A_IN, INPUT);
   pinMode(NE_B_IN, INPUT);
   pinMode(NE_Z_IN, INPUT);
   pinMode(INJ_OUT, OUTPUT);
@@ -602,26 +586,11 @@ void setup() {
   }
 #endif  
 
-  // OLEDの接続確認
-  Wire.beginTransmission(0x3C);
-  if (Wire.endTransmission() == 0) {
-    OLED = true;
-  }
-
-  if(OLED) {  // OLEDが接続されていれば
-    u8x8.begin();
-    u8x8.setPowerSave(0);
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
-    //u8x8.setFont(u8x8_font_profont29_2x3_r);
-    u8x8.setInverseFont(1);
-    u8x8.drawString(0, 0, "RPM");
-    u8x8.drawString(0, 1, "INJ");
-    u8x8.drawString(8, 1, "IGN");
-    u8x8.drawString(0, 2, "SPD");
-    u8x8.drawString(8, 2, "DIS");
-    u8x8.drawString(0, 3, "GAS");
-    u8x8.drawString(8, 3, "km/l");
-    u8x8.setInverseFont(0);
+  // MA735磁気エンコーダSPIの設定
+  if (MA735SPI) {
+    SPI.begin();
+    pinMode(MA735_CS, OUTPUT);
+    fastestDigitalWrite(MA735_CS, HIGH);
   }
 
   if (AFR) {  // A/Fセンサが接続されていれば
@@ -639,7 +608,6 @@ void setup() {
   if (Encoder) {
     attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe, RISING);   // 外部割り込み（NE_A_IN）
   }
-  //Wire.end();
   
   attachInterrupt(digitalPinToInterrupt(WH_IN), WH_PULSE, FALLING);   // 外部割り込み（WH_IN）
 
