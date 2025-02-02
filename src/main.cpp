@@ -39,6 +39,7 @@ volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
 volatile bool IGN_His = false;    // 1サイクル中の点火履歴
 volatile bool G_Pulse = false;    // カムパルス信号
 volatile bool G_Pulse_Flag = false;  // カムパルス信号の立ち上がりフラグ
+volatile bool CycleReset = false; // サイクルリセットフラグ
 bool OLED = false;                // OLED有効/無効
 bool Encoder = true;              // MA735磁気エンコーダパルス有効/無効
 bool MA735SPI = false;            // MA735磁気エンコーダSPI有効/無効
@@ -180,30 +181,30 @@ void INJ_IGN_SD() {
 
 // エンジン回転処理リセット
 void Cycle_Reset() {
-  if (SDMAP) {     // SD内の点火MAPが使用できる場合
-    INJ_IGN_SD();  // SDから読んだ点火MAP
+  if (SDMAP) {                              // SD内の点火MAPが使用できる場合
+    INJ_IGN_SD();                           // SDから読んだ点火MAP
   }
   else {
-    INJ_IGN();     // 本コード内の点火MAP
+    INJ_IGN();                              // 本コード内の点火MAP
   }
 
   //if (INJ_time > 0) {
   if (tachoRpm <= 6000) {
-    INJ_Status = 1;  // 噴射OFF
-    IGN_Status = 1;  // 点火OFF
+    INJ_Status = 1;                         // 噴射OFF
+    IGN_Status = 1;                         // 点火OFF
   }
   else {
-    INJ_Status = 0;  // 噴射無効
-    IGN_Status = 0;  // 点火無効
+    INJ_Status = 0;                         // 噴射無効
+    IGN_Status = 0;                         // 点火無効
     timeNow_INJ_ON = NULL;
     timeNow_INJ_OFF = NULL;
   }
-  //INJ_Status = 1;              // 噴射ステータスOFF
-  //IGN_Status = 1;              // 点火ステータスOFF
-  INJ_His = false;               // 噴射履歴をリセット
-  IGN_His = false;               // 点火履歴をリセット
+  //INJ_Status = 1;                         // 噴射ステータスOFF
+  //IGN_Status = 1;                         // 点火ステータスOFF
+  INJ_His = false;                          // 噴射履歴をリセット
+  IGN_His = false;                          // 点火履歴をリセット
 
-  if (Encoder) {
+  if (Encoder || MA735SPI) {                // エンコーダが有効の場合
     Serial.print("Cycle_Reset: ");
     Serial.println(Ne_deg);
   }
@@ -236,7 +237,7 @@ void ReadNe(){
     if (Ne_deg > 360.0 && G_Pulse_Flag) {     // クランク角が360°より大きい&カムパルスセンサ立ち上がりフラグONの場合
       Ne_deg = 0.0;                             // クランク角を0°にリセット
       G_Pulse_Flag = false;                     // カムパルスセンサの立ち上がりフラグをOFF
-      Cycle_Reset();                            // エンジン運転のリセット処理
+      CycleReset = true;                        // サイクルリセットフラグON
     }
   }
 }
@@ -254,23 +255,31 @@ float readMA735SPI() {
   long diff_rd = rd - _rd;                  // クランク角の差分を計算
   if (diff_rd < -32767) {                   // クランク角の差分が-180°以上の場合(=正転でクランク角が上死点を超えた場合)
     Ne_rev++;                                 // 回転数をカウントアップ
+    if ( G_Pulse_Flag) {                      // カムパルスセンサ立ち上がりフラグONの場合
+      Ne_rev = 0;                               // クランク回転数をリセット
+      G_Pulse_Flag = false;                     // カムパルスセンサの立ち上がりフラグをOFF
+      // Serial.println("G_Pulse_Flag: false");
+      CycleReset = true;                        // サイクルリセットフラグON
+    }
   }
   else if (diff_rd > 32767) {               // クランク角の差分が180°以上の場合(=逆転でクランク角が上死点を超えた場合)
     Ne_rev--;                                 // 回転数をカウントダウン
   }
+  _rd = rd;                                 // 現在の角度を前回の角度に設定
+
   return (float)rd / 65535 * 360 + 360 * Ne_rev;  // 0-720(deg)に変換
 }
 
 // カム角センサーから回転数計算
 void tachometer() {
-  tachoAfter = micros();  // 現在の時刻を記録
-  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
-  tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
-  if (!Encoder) {              // 磁気エンコーダが無効の場合
-    Ne_deg = 0.0;             // クランク角を上死点にリセット
-    tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-    usecperdig = tachoWidth / 720.0;  // クランク1°当たりの時間(usec)
-    Cycle_Reset();            // エンジン運転のリセット処理
+  tachoAfter = micros();                    // 現在の時刻を記録
+  tachoWidth = tachoAfter - tachoBefore;    // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
+  tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
+  if (!Encoder) {                           // 磁気エンコーダが無効の場合
+    Ne_deg = 0.0;                             // クランク角を上死点にリセット
+    tachoRpm = (60000000.0 / tachoWidth) * 2; //クランクの回転数[rpm]を計算
+    usecperdig = tachoWidth / 720.0;          // クランク1°当たりの時間(usec)
+    CycleReset = true;                        // サイクルリセットフラグON
   }
 }
 
@@ -292,13 +301,6 @@ void Routine() {
   
   if (MA735SPI) {                       // MA735磁気エンコーダSPIが有効の場合
     Ne_deg = readMA735SPI();              // MA735磁気エンコーダSPIの値を取得
-
-    if (Ne_deg > 360.0 && G_Pulse_Flag) { // クランク角が360°より大きい&カムパルスセンサ立ち上がりフラグONの場合
-      Ne_rev = 0;                           // クランク回転数をリセット
-      Ne_deg = readMA735SPI();              // MA735磁気エンコーダSPIの値を取得
-      G_Pulse_Flag = false;                 // カムパルスセンサの立ち上がりフラグをOFF
-      Cycle_Reset();                        // エンジン運転のリセット処理
-    }
   }
 
   if (!Encoder) {                       // 磁気エンコーダパルスが無効の場合
@@ -310,12 +312,18 @@ void Routine() {
       tachometer();
       G_Pulse = true;
       G_Pulse_Flag = true;
+      // Serial.println("G_Pulse_Flag: true");
     }
   }
   if (fastestdigitalRead(G_IN) == HIGH){ // カムパルス(D5, P102)がOFFの場合
     if (G_Pulse) {
       G_Pulse = false;
     }
+  }
+
+  if (CycleReset) {                       // サイクルリセットフラグがONの場合
+    Cycle_Reset();                          // エンジン運転のリセット処理
+    CycleReset = false;                     // サイクルリセットフラグをリセット
   }
 
   // 噴射ONステータス時
