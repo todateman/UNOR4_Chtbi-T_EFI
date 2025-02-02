@@ -5,7 +5,7 @@
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
-#include "fastestDigitalRW.hpp"
+#include "fastestdigitalRW.hpp"
 #include "AGTimerR4.h"
 #include <Arduino_FreeRTOS.h>
 #include <Wire.h>
@@ -151,7 +151,7 @@ void INJ_IGN() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (fastestDigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if (fastestdigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 100;
     IGN_CA = 45;
   }
@@ -171,7 +171,7 @@ void INJ_IGN_SD() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (fastestDigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
+  if (fastestdigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
     INJ_time = 50;
     IGN_CA = 0;
   }
@@ -217,7 +217,7 @@ void Routine() {
     if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
       timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      fastestDigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
+      fastestdigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
       INJ_Status = 1;               // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
       if (Encoder) {
@@ -232,7 +232,7 @@ void Routine() {
     if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
       timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      fastestDigitalWrite(IGN_OUT, HIGH);  // 点火OFF
+      fastestdigitalWrite(IGN_OUT, HIGH);  // 点火OFF
       IGN_Status = 1;               // 点火無効ステータス
       if (Encoder) {
         Serial.print("IGN_OFF: ");
@@ -241,17 +241,17 @@ void Routine() {
     }
   }
 
-  if (fastestDigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
+  if (fastestdigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
     // スタータボタンを押したとき
-    if (fastestDigitalRead(STR_IN) == LOW){
+    if (fastestdigitalRead(STR_IN) == LOW){
       //digitalWrite(STR_OUT, LOW);  // スタータON
-      fastestDigitalWrite(STR_OUT, LOW);  // スタータON
+      fastestdigitalWrite(STR_OUT, LOW);  // スタータON
       //Serial.println("STR_ON");
       Launch = true;                      // 走行開始ON
     }
     else {
       //digitalWrite(STR_OUT, HIGH);  // スタータOFF
-      fastestDigitalWrite(STR_OUT, HIGH);  // スタータOFF
+      fastestdigitalWrite(STR_OUT, HIGH);  // スタータOFF
     }
 
     // 噴射OFFステータス時
@@ -260,7 +260,7 @@ void Routine() {
         timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
         INJ_His = true;                   // 噴射履歴あり
         //digitalWrite(INJ_OUT, LOW);     // 噴射ON
-        fastestDigitalWrite(INJ_OUT, LOW);   // 噴射ON
+        fastestdigitalWrite(INJ_OUT, LOW);   // 噴射ON
         INJ_Status = 2;                   // 噴射ONステータス
         if (Encoder) {
           Serial.print("INJ_ON:  ");
@@ -276,7 +276,7 @@ void Routine() {
         timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
         IGN_His = true;                   // 点火履歴あり
         //digitalWrite(IGN_OUT, LOW);     // 点火ON
-        fastestDigitalWrite(IGN_OUT, LOW);   // 点火ON
+        fastestdigitalWrite(IGN_OUT, LOW);   // 点火ON
         IGN_Status = 2;                   // 点火ONステータス
         if (Encoder) {
           Serial.print("IGN_ON:  ");
@@ -485,21 +485,21 @@ void mainloop(void *pvParameters) {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
 
-    if (fastestDigitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
-      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+    if (fastestdigitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
+      fastestdigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
       Launch = false;                           // 走行開始OFF
       Serialsend();                             // シリアル送信
       delay(1000);
     }
     if (Launch) {                               // 走行開始ONの場合
-      fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
+      fastestdigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
       if (starttime == 0) {                       // 走行時間が0の場合
         starttime = millis();                     // 走行開始時間を現在の時間にする
       }
       worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
     }
     else {
-      fastestDigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
+      fastestdigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
       worktime = 0;                               // 走行時間を0にする
       starttime = 0;                              // 走行開始時間を0にする
       distancemm = 0;                             // 走行距離を0にする
@@ -564,7 +564,7 @@ void setup() {
   */
   digitalWrite(DISRESET_OUT, LOW);    // DISRESET_OUT ON
 
-  if (fastestDigitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
+  if (fastestdigitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
     delay(100);
     digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
 
