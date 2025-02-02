@@ -5,7 +5,7 @@
 //#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
-#include "fastestDigitalRW.hpp"
+#include "fastestdigitalRW.hpp"
 #include "AGTimerR4.h"
 #include <Arduino_FreeRTOS.h>
 
@@ -152,7 +152,7 @@ void INJ_IGN() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (fastestDigitalRead(STR_IN) == LOW){    // スタータボタン(D6, P106)を押したとき
+  if (fastestdigitalRead(STR_IN) == LOW){    // スタータボタン(D6, P106)を押したとき
     INJ_time = 100;
     IGN_CA = 0;
   }
@@ -172,7 +172,7 @@ void INJ_IGN_SD() {
     INJ_time = 0;
     IGN_CA = 0;
   }
-  if (fastestDigitalRead(STR_IN) == LOW){    // スタータボタン(D6, P106)を押したとき
+  if (fastestdigitalRead(STR_IN) == LOW){    // スタータボタン(D6, P106)を押したとき
     INJ_time = 50;
     IGN_CA = 0;
   }
@@ -221,13 +221,13 @@ void WH_PULSE() {
 
 // クランク角の読み取り
 void ReadNe(){
-  if (!fastestDigitalRead(NE_B_IN)) {       // クランクBパルス(D8, P304)がOFFの場合
+  if (!fastestdigitalRead(NE_B_IN)) {       // クランクBパルス(D8, P304)がOFFの場合
     Ne_deg += 1.0;                            // 1パルス毎にクランク角を360°/360=1°ずつ加算
   } else {                                  // クランクBパルス(D8, P304)がONの場合
     Ne_deg -= 1.0;                            // 1パルス毎にクランク角を360°/360=1°ずつ減算   
   }
 
-  if (fastestDigitalRead(NE_Z_IN)) {        // クランクZパルス(D9, P303)がONの場合 = クランク1回転の場合
+  if (fastestdigitalRead(NE_Z_IN)) {        // クランクZパルス(D9, P303)がONの場合 = クランク1回転の場合
     tachoAfter = micros();                    // 現在の時刻を記録
     tachoWidth = tachoAfter - tachoBefore;    // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
     tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
@@ -246,9 +246,9 @@ float readMA735SPI() {
   static uint16_t _rd = 0;                  // 16bit(0-65535)の前回の角度
 
   SPI.beginTransaction(MA735settings);
-  fastestDigitalWrite(MA735_CS, LOW);
+  fastestdigitalWrite(MA735_CS, LOW);
   uint16_t rd = SPI.transfer16(0);          // 16bit(0-65535)で現在の角度を取得
-  fastestDigitalWrite(MA735_CS, HIGH);
+  fastestdigitalWrite(MA735_CS, HIGH);
   SPI.endTransaction();
 
   long diff_rd = rd - _rd;                  // クランク角の差分を計算
@@ -305,14 +305,14 @@ void Routine() {
     Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
   }
   
-  if (fastestDigitalRead(G_IN) == LOW){ // カムパルス(D5, P102)がONの場合
+  if (fastestdigitalRead(G_IN) == LOW){ // カムパルス(D5, P102)がONの場合
     if (!G_Pulse) {
       tachometer();
       G_Pulse = true;
       G_Pulse_Flag = true;
     }
   }
-  if (fastestDigitalRead(G_IN) == HIGH){ // カムパルス(D5, P102)がOFFの場合
+  if (fastestdigitalRead(G_IN) == HIGH){ // カムパルス(D5, P102)がOFFの場合
     if (G_Pulse) {
       G_Pulse = false;
     }
@@ -323,7 +323,7 @@ void Routine() {
     if ( micros() - timeNow_INJ_ON >= INJ_time * 100 * Fuel_boost_factor ){  // 噴射開始から噴射時間(燃料増量係数で補正)が経過したら
       timeNow_INJ_OFF = micros();                 // 噴射終了時の時刻を記録
       //digitalWrite(INJ_OUT, HIGH);              // 噴射OFF
-      fastestDigitalWrite(INJ_OUT, HIGH);         // 噴射OFF
+      fastestdigitalWrite(INJ_OUT, HIGH);         // 噴射OFF
       INJ_Status = 1;                             // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
       if (Encoder) {
@@ -338,7 +338,7 @@ void Routine() {
     if ( micros() - timeNow_IGN_ON >= 5000){    // 点火維持時間(5000us)が経過したら
       timeNow_IGN_OFF = micros();                 // 点火終了時の時刻を記録
       //digitalWrite(IGN_OUT, HIGH);              // 点火OFF
-      fastestDigitalWrite(IGN_OUT, HIGH);         // 点火OFF
+      fastestdigitalWrite(IGN_OUT, HIGH);         // 点火OFF
       IGN_Status = 1;                             // 点火無効ステータス
       if (Encoder) {
         Serial.print("IGN_OFF: ");
@@ -347,17 +347,17 @@ void Routine() {
     }
   }
 
-  if (fastestDigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(D7, P107)がOFFの場合
+  if (fastestdigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(D7, P107)がOFFの場合
     // スタータボタンを押したとき
-    if (fastestDigitalRead(STR_IN) == LOW){     // スタータボタン(D6, P106)を押したとき
+    if (fastestdigitalRead(STR_IN) == LOW){     // スタータボタン(D6, P106)を押したとき
       //digitalWrite(STR_OUT, LOW);               // スタータON
-      fastestDigitalWrite(STR_OUT, LOW);          // スタータON
+      fastestdigitalWrite(STR_OUT, LOW);          // スタータON
       //Serial.println("STR_ON");
       Launch = true;                              // 走行開始ON
     }
     else {                                      // スタータボタン(D6, P106)が押されていない場合
       //digitalWrite(STR_OUT, HIGH);              // スタータOFF
-      fastestDigitalWrite(STR_OUT, HIGH);         // スタータOFF
+      fastestdigitalWrite(STR_OUT, HIGH);         // スタータOFF
     }
 
     // 噴射OFFステータス時
@@ -366,7 +366,7 @@ void Routine() {
         timeNow_INJ_ON = micros();                  // 噴射開始時の時刻を記録
         INJ_His = true;                             // 噴射履歴あり
         //digitalWrite(INJ_OUT, LOW);               // 噴射ON
-        fastestDigitalWrite(INJ_OUT, LOW);          // 噴射ON
+        fastestdigitalWrite(INJ_OUT, LOW);          // 噴射ON
         INJ_Status = 2;                             // 噴射ONステータス
         if (Encoder) {
           Serial.print("INJ_ON:  ");
@@ -381,7 +381,7 @@ void Routine() {
         timeNow_IGN_ON = micros();                  // 点火開始時の時刻を記録
         IGN_His = true;                             // 点火履歴あり
         //digitalWrite(IGN_OUT, LOW);               // 点火ON
-        fastestDigitalWrite(IGN_OUT, LOW);          // 点火ON
+        fastestdigitalWrite(IGN_OUT, LOW);          // 点火ON
         IGN_Status = 2;                             // 点火ONステータス
         if (Encoder) {
           Serial.print("IGN_ON:  ");
@@ -515,14 +515,14 @@ void mainloop(void *pvParameters) {
     xLastWakeTime = xTaskGetTickCount();
 
     if (Launch) {                               // 走行開始ONの場合
-      fastestDigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
+      fastestdigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
       if (starttime == 0) {                       // 走行時間が0の場合
         starttime = millis();                     // 走行開始時間を現在の時間にする
       }
       worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
     }
     else {
-      fastestDigitalWrite(DISRESET_OUT, HIGH);    // リセット状態出力をOFFにする
+      fastestdigitalWrite(DISRESET_OUT, HIGH);    // リセット状態出力をOFFにする
       worktime = 0;                               // 走行時間を0にする
       starttime = 0;                              // 走行開始時間を0にする
       distancemm = 0;                             // 走行距離を0にする
@@ -613,7 +613,7 @@ void setup() {
   if (MA735SPI) {
     SPI.begin();
     pinMode(MA735_CS, OUTPUT);
-    fastestDigitalWrite(MA735_CS, HIGH);
+    fastestdigitalWrite(MA735_CS, HIGH);
 
     Ne_deg = readMA735SPI();  // クランク角(deg)を読み取る
   }
