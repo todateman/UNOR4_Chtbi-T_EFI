@@ -41,8 +41,8 @@ volatile bool G_Pulse = false;    // カムパルス信号
 volatile bool G_Pulse_Flag = false;  // カムパルス信号の立ち上がりフラグ
 volatile bool CycleReset = false; // サイクルリセットフラグ
 bool OLED = false;                // OLED有効/無効
-bool Encoder = true;              // MA735磁気エンコーダパルス有効/無効
-bool MA735SPI = false;            // MA735磁気エンコーダSPI有効/無効
+bool Encoder = false;             // MA735磁気エンコーダパルス有効/無効
+bool MA735SPI = true;             // MA735磁気エンコーダSPI有効/無効
 bool AFR = false;                 // A/Fセンサ有効/無効
 bool Increase_Fuel = false;       // 燃料増量係数有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
@@ -60,7 +60,7 @@ uint8_t INJ_OUT = A0;             // P014 インジェクタ出力
 uint8_t IGN_OUT = A1;             // P000 イグニッション出力
 uint8_t STR_OUT = A2;             // P001 スタータ出力
 uint8_t DISRESET_OUT = A3;        // P002 リセット状態出力(リセットされていればOFF)
-float usecperdig = 0.0;           // クランク1°当たりの時間(usec)
+float usecperdig = 1.0;           // クランク1°当たりの時間(usec)
 uint16_t perimeter = 1548;        // 車軸1回転当たりの周長(mm)
 uint8_t INJ_STR_CA = 65;          // 燃料噴射タイミング角度(deg)を設定
 float gasml = 0.0;                // 積算燃料消費量(ml)
@@ -204,7 +204,7 @@ void Cycle_Reset() {
   INJ_His = false;                          // 噴射履歴をリセット
   IGN_His = false;                          // 点火履歴をリセット
 
-  if (Encoder || MA735SPI) {                // エンコーダが有効の場合
+  if (Encoder || MA735SPI) {                // エンコーダパルス or MA735SPIが有効の場合
     Serial.print("Cycle_Reset: ");
     Serial.println(Ne_deg);
   }
@@ -220,7 +220,7 @@ void WH_PULSE() {
   distance = distancemm * 0.001;            //走行距離(m)を積算
 }
 
-// クランク角の読み取り
+// エンコーダパルスからクランク角の読み取り
 void ReadNe(){
   if (!fastestdigitalRead(NE_B_IN)) {       // クランクBパルス(D8, P304)がOFFの場合
     Ne_deg += 1.0;                            // 1パルス毎にクランク角を360°/360=1°ずつ加算
@@ -254,8 +254,8 @@ float readMA735SPI() {
 
   long diff_rd = rd - _rd;                  // クランク角の差分を計算
   if (diff_rd < -32767) {                   // クランク角の差分が-180°以上の場合(=正転でクランク角が上死点を超えた場合)
-    Ne_rev++;                                 // 回転数をカウントアップ
-    if ( G_Pulse_Flag) {                      // カムパルスセンサ立ち上がりフラグONの場合
+    Ne_rev++;                                 // 回転数(1回転,2回転,...)をカウントアップ
+    if (G_Pulse_Flag) {                      // カムパルスセンサ立ち上がりフラグONの場合
       Ne_rev = 0;                               // クランク回転数をリセット
       G_Pulse_Flag = false;                     // カムパルスセンサの立ち上がりフラグをOFF
       // Serial.println("G_Pulse_Flag: false");
@@ -263,7 +263,7 @@ float readMA735SPI() {
     }
   }
   else if (diff_rd > 32767) {               // クランク角の差分が180°以上の場合(=逆転でクランク角が上死点を超えた場合)
-    Ne_rev--;                                 // 回転数をカウントダウン
+    Ne_rev--;                                 // 回転数(1回転,2回転,...)をカウントダウン
   }
   _rd = rd;                                 // 現在の角度を前回の角度に設定
 
@@ -275,10 +275,17 @@ void tachometer() {
   tachoAfter = micros();                    // 現在の時刻を記録
   tachoWidth = tachoAfter - tachoBefore;    // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
   tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
-  if (!Encoder) {                           // 磁気エンコーダが無効の場合
+
+  if (!Encoder && !MA735SPI) {              // 磁気エンコーダパルス と MA735磁気エンコーダSPIの両方が無効の場合
     Ne_deg = 0.0;                             // クランク角を上死点にリセット
-    tachoRpm = (60000000.0 / tachoWidth) * 2; //クランクの回転数[rpm]を計算
-    usecperdig = tachoWidth / 720.0;          // クランク1°当たりの時間(usec)
+    // ゼロ除算対策
+    if (tachoWidth > 0) {
+      tachoRpm = (60000000.0 / tachoWidth) * 2; //クランクの回転数[rpm]を計算
+      usecperdig = tachoWidth / 720.0;          // クランク1°当たりの時間(usec)
+    } else {
+      tachoRpm = 0;                             // クランクの回転数[rpm]を0にリセット
+      usecperdig = 1.0;                         // クランク1°当たりの時間(usec)を0.001にリセット
+    }
     CycleReset = true;                        // サイクルリセットフラグON
   }
 }
@@ -303,8 +310,11 @@ void Routine() {
     Ne_deg = readMA735SPI();              // MA735磁気エンコーダSPIの値を取得
   }
 
-  if (!Encoder) {                       // 磁気エンコーダパルスが無効の場合
-    Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
+  if (!Encoder && !MA735SPI) {          // 磁気エンコーダパルス or MA735磁気エンコーダSPIの両方が無効の場合
+    // ゼロ除算対策
+    if (usecperdig > 0.001) {  // 小さすぎる値でも除算しない
+      Ne_deg += Routine_Cycle / usecperdig;
+    }
   }
   
   if (fastestdigitalRead(G_IN) == LOW){ // カムパルス(D5, P102)がONの場合
@@ -334,7 +344,7 @@ void Routine() {
       fastestdigitalWrite(INJ_OUT, HIGH);         // 噴射OFF
       INJ_Status = 1;                             // 噴射無効ステータス
       gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
-      if (Encoder) {
+      if (Encoder || MA735SPI) {                  // 磁気エンコーダパルス or MA735SPIが有効の場合 
         Serial.print("INJ_OFF: ");
         Serial.println(Ne_deg);
       }
@@ -348,7 +358,7 @@ void Routine() {
       //digitalWrite(IGN_OUT, HIGH);              // 点火OFF
       fastestdigitalWrite(IGN_OUT, HIGH);         // 点火OFF
       IGN_Status = 1;                             // 点火無効ステータス
-      if (Encoder) {
+      if (Encoder || MA735SPI) {                  // 磁気エンコーダパルス or MA735SPIが有効の場合
         Serial.print("IGN_OFF: ");
         Serial.println(Ne_deg);
       }
@@ -376,7 +386,7 @@ void Routine() {
         //digitalWrite(INJ_OUT, LOW);               // 噴射ON
         fastestdigitalWrite(INJ_OUT, LOW);          // 噴射ON
         INJ_Status = 2;                             // 噴射ONステータス
-        if (Encoder) {
+        if (Encoder || MA735SPI) {                  // 磁気エンコーダパルス or MA735SPIが有効の場合
           Serial.print("INJ_ON:  ");
           Serial.println(Ne_deg);
         }
@@ -391,7 +401,7 @@ void Routine() {
         //digitalWrite(IGN_OUT, LOW);               // 点火ON
         fastestdigitalWrite(IGN_OUT, LOW);          // 点火ON
         IGN_Status = 2;                             // 点火ONステータス
-        if (Encoder) {
+        if (Encoder || MA735SPI) {                  // 磁気エンコーダパルス or MA735SPIが有効の場合
           Serial.print("IGN_ON:  ");
           Serial.println(Ne_deg);
         }
@@ -419,15 +429,15 @@ void Serialsend() {
     Serial.print("\t");
     Serial.print(worktime);
     Serial.print("\t");
-    if (!Encoder) {
+    if (!Encoder && !MA735SPI) {
       Serial.print("(");
     }
     Serial.print(Ne_deg);
     Serial.print("'");
-    if (!Encoder) {
+    if (!Encoder && !MA735SPI) {
       Serial.print(")");
     }
-    if (Encoder) {
+    if (Encoder && MA735SPI) {            // 磁気エンコーダパルス or MA735SPIが有効の場合 
       Serial.print("\t");
       //Serial.print(G_Pulse, HEX);
       Serial.print(G_Pulse_Flag, HEX);
@@ -546,7 +556,7 @@ void mainloop(void *pvParameters) {
 
     if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
       tachoRpm = 0;
-      usecperdig = 0.0;
+      usecperdig = 1.0;
       INJ_time = 0.0;
       IGN_CA = 0;
     }
@@ -621,7 +631,7 @@ void setup() {
   if (MA735SPI) {
     SPI.begin();
     pinMode(MA735_CS, OUTPUT);
-    fastestdigitalWrite(MA735_CS, HIGH);
+    digitalWrite(MA735_CS, HIGH);
 
     Ne_deg = readMA735SPI();  // クランク角(deg)を読み取る
   }
@@ -638,7 +648,7 @@ void setup() {
   } 
 
 
-  if (Encoder) {
+  if (Encoder) {             // 磁気エンコーダパルスが有効の場合
     attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe, RISING);   // 外部割り込み（NE_A_IN）
   }
   
