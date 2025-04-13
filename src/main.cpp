@@ -20,7 +20,7 @@ volatile unsigned long tachoWidth = 0;      // カム一回転の時間　tachoA
 volatile unsigned long speedBefore = 0;     // 車軸パルスセンサーの前回の反応時の時間
 volatile unsigned long speedAfter = 0;      // 車軸パルスセンサーの今回の反応時の時間
 volatile unsigned long speedWidth = 0;      // 車軸一回転の時間　speedAfter - speedBefore
-volatile float Ne_deg = 0.0;                // 磁気エンコーダのクランク角(deg)
+volatile int16_t Ne_deg = 0;                // 磁気エンコーダのクランク角(deg)
 volatile int8_t Ne_rev = 0;                 // クランク回転数(クランク角計算用)
 volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
 volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
@@ -41,8 +41,8 @@ volatile bool G_Pulse = false;    // カムパルス信号
 volatile bool G_Pulse_Flag = false;  // カムパルス信号の立ち上がりフラグ
 volatile bool CycleReset = false; // サイクルリセットフラグ
 bool OLED = false;                // OLED有効/無効
-bool Encoder = false;             // MA735磁気エンコーダパルス有効/無効
-bool MA735SPI = true;             // MA735磁気エンコーダSPI有効/無効
+bool Encoder = true;             // MA735磁気エンコーダパルス有効/無効
+bool MA735SPI = false;             // MA735磁気エンコーダSPI有効/無効
 bool AFR = false;                 // A/Fセンサ有効/無効
 bool Increase_Fuel = false;       // 燃料増量係数有効/無効
 bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
@@ -225,9 +225,9 @@ void WH_PULSE() {
 // エンコーダパルスからクランク角の読み取り
 void ReadNe(){
   if (!fastestdigitalRead(NE_B_IN)) {       // クランクBパルス(D8, P304)がOFFの場合
-    Ne_deg += 1.0;                            // 1パルス毎にクランク角を360°/360=1°ずつ加算
+    Ne_deg += 1;                              // 1パルス毎にクランク角を360°/360=1°ずつ加算
   } else {                                  // クランクBパルス(D8, P304)がONの場合
-    Ne_deg -= 1.0;                            // 1パルス毎にクランク角を360°/360=1°ずつ減算   
+    Ne_deg -= 1;                              // 1パルス毎にクランク角を360°/360=1°ずつ減算   
   }
 
   if (fastestdigitalRead(NE_Z_IN)) {        // クランクZパルス(D9, P303)がONの場合 = クランク1回転の場合
@@ -236,8 +236,8 @@ void ReadNe(){
     tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
     tachoRpm = (60000000.0 / tachoWidth);     //クランクの回転数[rpm]を計算
     
-    if (Ne_deg > 360.0 && G_Pulse_Flag) {     // クランク角が360°より大きい&カムパルスセンサ立ち上がりフラグONの場合
-      Ne_deg = 0.0;                             // クランク角を0°にリセット
+    if (Ne_deg > 360 && G_Pulse_Flag) {       // クランク角が360°より大きい&カムパルスセンサ立ち上がりフラグONの場合
+      Ne_deg = 0;                               // クランク角を0°にリセット
       G_Pulse_Flag = false;                     // カムパルスセンサの立ち上がりフラグをOFF
       CycleReset = true;                        // サイクルリセットフラグON
     }
@@ -245,7 +245,7 @@ void ReadNe(){
 }
 
 // MA735磁気エンコーダSPIで角度を読み取る
-float readMA735SPI() {
+int16_t readMA735SPI() {
   static uint16_t _rd = 0;                  // 16bit(0-65535)の前回の角度
   static unsigned long _rd_time = 0;        // 前回の角度を取得した時間
 
@@ -278,7 +278,7 @@ float readMA735SPI() {
   }
   _rd = rd;                                 // 現在の角度を前回の角度に設定
 
-  return (float)rd / 65535 * 360 + 360 * Ne_rev;  // 0-720(deg)に変換
+  return rd / 65535 * 360 + 360 * Ne_rev;     // 0-720(deg)に変換
 }
 
 // カム角センサーから回転数計算
@@ -288,7 +288,7 @@ void tachometer() {
   tachoBefore = tachoAfter;                 // 今回の値を前回の値に代入する
 
   if (!Encoder && !MA735SPI) {              // 磁気エンコーダパルス と MA735磁気エンコーダSPIの両方が無効の場合
-    Ne_deg = 0.0;                             // クランク角を上死点にリセット
+    Ne_deg = 0;                               // クランク角を上死点にリセット
     // ゼロ除算対策
     if (tachoWidth > 0) {
       tachoRpm = (60000000.0 / tachoWidth) * 2; //クランクの回転数[rpm]を計算
