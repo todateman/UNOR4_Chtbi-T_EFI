@@ -278,7 +278,8 @@ int16_t readMA735SPI() {
   }
   _rd = rd;                                 // 現在の角度を前回の角度に設定
 
-  return rd / 65535 * 360 + 360 * Ne_rev;     // 0-720(deg)に変換
+  int16_t deg = ((uint32_t)rd * 360) / 65535 + 360 * Ne_rev;
+  return deg;
 }
 
 // カム角センサーから回転数計算
@@ -324,7 +325,7 @@ void Routine() {
   if (!Encoder && !MA735SPI) {          // 磁気エンコーダパルス or MA735磁気エンコーダSPIの両方が無効の場合
     // ゼロ除算対策
     if (usecperdig > 0.001) {  // 小さすぎる値でも除算しない
-      Ne_deg += Routine_Cycle / usecperdig;
+      Ne_deg += (int16_t)(Routine_Cycle / usecperdig);
     }
   }
   
