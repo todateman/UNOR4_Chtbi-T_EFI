@@ -68,9 +68,11 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（ms）
+volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
-uint8_t INJ_STR_CA                   = 0; // 燃料噴射タイミング角度（CA）
+volatile uint8_t  start_INJ_time     = 90; // 始動時の燃料噴射時間（x0.1ms）
+volatile int16_t  start_IGN_CA       = 0; // 始動時の燃料噴射タイミング角度（CA）
+volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
 
@@ -222,19 +224,28 @@ int16_t readMA735SPI() {
 // エンジンMAP更新
 //-----------------------------------------------------------------------------
 void updateEngineMap() {
-  if (SDMapEnabled) {
-    // SDカードMAP読み込みの場合（parseCSV()でロードしたデータを利用）
-    // ここでは未実装（必要なら実装）
-  } else {
-    for (uint8_t i = 0; i < defaultMapSize; i++) {
-      if (tachoRpm < defaultMap[i].rpm) {
-        calculatedINJ_time = defaultMap[i].inj_time;
-        calculatedIGN_CA   = defaultMap[i].ign_ca;
-        return;
+  // スタータONの場合
+  if (fastestdigitalRead(STR_IN) == LOW) {
+    calculatedINJ_time = start_INJ_time;
+    calculatedIGN_CA   = start_IGN_CA;
+  }
+  // スタータOFFの場合
+  else {
+    if (SDMapEnabled) {
+      // SDカードMAP読み込みの場合（parseCSV()でロードしたデータを利用）
+      // ここでは未実装（必要なら実装）
+    } else {
+      for (uint8_t i = 0; i < defaultMapSize; i++) {
+        if (tachoRpm < defaultMap[i].rpm) {
+          calculatedINJ_time = defaultMap[i].inj_time;
+          calculatedIGN_CA   = defaultMap[i].ign_ca;
+          return;
+        }
       }
+      // calculatedINJ_time = 0;
+      // calculatedIGN_CA   = 0;
+      // return;
     }
-    calculatedINJ_time = 0;
-    calculatedIGN_CA   = 0;
   }
 }
 
@@ -254,8 +265,6 @@ void cycleReset() {
   if (tachoRpm > TACHO_RPM_MAX) {
     INJ_Status = 0;
     IGN_Status = 0;
-    timeNow_INJ_ON  = 0;
-    timeNow_INJ_OFF = 0;
   } else {
     INJ_Status = 1;
     IGN_Status = 1;
