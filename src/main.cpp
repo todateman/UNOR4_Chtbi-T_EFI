@@ -58,7 +58,7 @@ volatile unsigned long tachoBefore  = 0;  // NE_Z_INの立ち上がりで更新
 volatile unsigned long tachoAfter   = 0;  // NE_Z_INの立ち下がりで更新
 volatile unsigned long tachoWidth   = 0;  // NE_Z_INのパルス幅
 volatile uint16_t      tachoRpm     = 0;  // NE_Z_INの回転数（RPM）
-volatile float         Ne_deg       = 0.0;  // クランク角度（CA）
+volatile int16_t       Ne_deg       = 0;  // クランク角度（CA）
 volatile int16_t       Ne_rev       = 0;  // クランク回転数（回転数）
 
 volatile unsigned long speedBefore  = 0;  // WH_INの立ち上がりで更新
@@ -68,10 +68,9 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
-uint8_t INJ_STR_CA = 65;                  // 燃料噴射タイミング角度（CA）
+uint8_t INJ_STR_CA                   = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
 
@@ -79,9 +78,6 @@ volatile unsigned long timeNow_INJ_ON  = 0; // 燃料噴射ON時間（us）
 volatile unsigned long timeNow_INJ_OFF = 0; // 燃料噴射OFF時間（us）
 volatile unsigned long timeNow_IGN_ON  = 0; // 点火ON時間（us）
 volatile unsigned long timeNow_IGN_OFF = 0; // 点火OFF時間（us）
-
-volatile bool INJ_His = false;            // 燃料噴射履歴（ON/OFF）
-volatile bool IGN_His = false;            // 点火履歴（ON/OFF）
 
 volatile bool G_Pulse      = false;       // G_INのパルス状態（立ち上がり）
 volatile bool G_Pulse_Flag = false;       // G_INのパルスフラグ（立ち上がり）
@@ -130,7 +126,7 @@ const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 void updateEngineMap();
 void cycleReset();
 void Routine();
-float readMA735SPI();
+int16_t readMA735SPI();
 void updateAFR();  // AFR関連は必要に応じて実装
 void parseCSV();   // SDカード用
 
@@ -164,17 +160,17 @@ void IRAM_ATTR WH_PULSE_ISR() {
 // ReadNe_ISR：クランク角更新割込み（NE_B_INによる処理）
 void IRAM_ATTR ReadNe_ISR() {
   if (!fastestdigitalRead(NE_B_IN))
-    Ne_deg += 1.0;
+    Ne_deg += 1;
   else
-    Ne_deg -= 1.0;
+    Ne_deg -= 1;
 
   if (fastestdigitalRead(NE_Z_IN)) {
     unsigned long now = micros();
     tachoWidth = now - tachoBefore;
     tachoBefore = now;
     tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
-    if (Ne_deg > 360.0 && G_Pulse_Flag) {
-      Ne_deg = 0.0;
+    if (Ne_deg > 360 && G_Pulse_Flag) {
+      Ne_deg = 0;
       G_Pulse_Flag = false;
       CycleReset = true;
     }
@@ -192,7 +188,8 @@ void IRAM_ATTR G_PULSE_ISR() {
 
 //-----------------------------------------------------------------------------
 // MA735 SPIによる角度取得
-float readMA735SPI() {
+//-----------------------------------------------------------------------------
+int16_t readMA735SPI() {
   static uint16_t last_rd = 0;
   static unsigned long last_rd_time = 0;
   SPI.beginTransaction(ma735Settings);
@@ -217,7 +214,7 @@ float readMA735SPI() {
     Ne_rev--;
   }
   last_rd = rd;
-  float angle = ((float)rd / 65535.0) * 360.0 + 360.0 * Ne_rev;
+  int16_t angle = (rd / 65535) * 360 + 360 * Ne_rev;
   return angle;
 }
 
@@ -242,7 +239,15 @@ void updateEngineMap() {
 }
 
 //-----------------------------------------------------------------------------
-// サイクルリセット
+// 燃費計算
+//-----------------------------------------------------------------------------
+float calculateFuelConsumption(unsigned long INJ_OFF, unsigned long INJ_ON) {
+  float _gasml = (((INJ_OFF - INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
+  return _gasml;
+}
+
+//-----------------------------------------------------------------------------
+// サイクルリセット(クランク角 0CAで実行)
 //-----------------------------------------------------------------------------
 void cycleReset() {
   updateEngineMap();
@@ -255,8 +260,6 @@ void cycleReset() {
     INJ_Status = 1;
     IGN_Status = 1;
   }
-  INJ_His = false;
-  IGN_His = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -273,7 +276,7 @@ void Routine() {
   
   if (!EncoderEnabled && !MA735SPIEnabled) {
     if (usecperdig > 1e-3)
-      Ne_deg += ((float)ROUTINE_CYCLE_US) / usecperdig;
+      Ne_deg += (uint16_t)(ROUTINE_CYCLE_US / usecperdig);
   }
   
   if (fastestdigitalRead(G_IN) == LOW) {
@@ -290,11 +293,38 @@ void Routine() {
     cycleReset();
     CycleReset = false;
   }
+
+  // キルスイッチ・スタートスイッチの状態を確認
+  if (fastestdigitalRead(ENGOFF_IN) == LOW) {
+    if (INJ_Status == 0) {
+      INJ_Status = 1;
+    }
+    if (IGN_Status == 0) {
+      IGN_Status = 1;
+    }
+    if (fastestdigitalRead(STR_IN) == LOW) {
+      fastestdigitalWrite(STR_OUT, LOW);
+      Launch = true;
+      if (starttime == 0)
+        starttime = millis();
+    } else {
+      fastestdigitalWrite(STR_OUT, HIGH);
+    }    
+  }
+  else {
+    INJ_Status = 0;
+    IGN_Status = 0;
+  }
   
-  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
+  if (INJ_Status == 0) {
+    timeNow_INJ_OFF = micros();
+    fastestdigitalWrite(INJ_OUT, HIGH);
+    gasml += calculateFuelConsumption(timeNow_INJ_OFF, timeNow_INJ_ON);
+  }
+
+  if (INJ_Status == 1) {
     if (Ne_deg >= INJ_STR_CA) {
       timeNow_INJ_ON = micros();
-      INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
       INJ_Status = 2;
     }
@@ -309,39 +339,28 @@ void Routine() {
       timeNow_INJ_OFF = micros();
       fastestdigitalWrite(INJ_OUT, HIGH);
       INJ_Status = 1;
-      gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
+      gasml += calculateFuelConsumption(timeNow_INJ_OFF, timeNow_INJ_ON);
     }
   }
+
+  if (IGN_Status == 0) {
+    fastestdigitalWrite(IGN_OUT, HIGH);
+  }
   
-  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
-    if (Ne_deg >= (360 - calculatedIGN_CA)) {
+  if (IGN_Status == 1) {
+    if (Ne_deg >= 360 - calculatedIGN_CA) {
       timeNow_IGN_ON = micros();
-      IGN_His = true;
       fastestdigitalWrite(IGN_OUT, LOW);
       IGN_Status = 2;
     }
   }
+
   if (IGN_Status == 2) {
     if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
       timeNow_IGN_OFF = micros();
       fastestdigitalWrite(IGN_OUT, HIGH);
       IGN_Status = 1;
     }
-  }
-  
-  if (fastestdigitalRead(ENGOFF_IN) == LOW) {
-    if (fastestdigitalRead(STR_IN) == LOW) {
-      fastestdigitalWrite(STR_OUT, LOW);
-      Launch = true;
-      ENG_ON = true;
-      if (starttime == 0)
-        starttime = millis();
-    } else {
-      fastestdigitalWrite(STR_OUT, HIGH);
-    }    
-  }
-  else {
-    ENG_ON = false;
   }
 }
 
