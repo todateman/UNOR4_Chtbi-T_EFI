@@ -28,21 +28,21 @@ void IRAM_ATTR G_PULSE_ISR();
 #define TACHO_RPM_MAX        6000
 #define IGNITION_HOLD_US     5000
 
-const uint8_t NE_A_IN      = 2;
-const uint8_t NE_B_IN      = 8;
-const uint8_t NE_Z_IN      = 9;
-const uint8_t WH_IN        = 3;
-const uint8_t G_IN         = 5;
-const uint8_t STR_IN       = 6;
-const uint8_t ENGOFF_IN    = 7;
-const uint8_t MA735_CS     = 10;
-const uint8_t INJ_OUT      = A0;
-const uint8_t IGN_OUT      = A1;
-const uint8_t STR_OUT      = A2;
-const uint8_t DISRESET_OUT = A3;
+const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
+const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
+const uint8_t NE_Z_IN      = 9;   // クランク角エンコーダBパルス(360°で1パルス)
+const uint8_t WH_IN        = 3;   // 車軸パルス（タイヤ1周で1パルス）
+const uint8_t G_IN         = 5;   // カム角センサ（クランク2周で1パルス）
+const uint8_t STR_IN       = 6;   // スタートスイッチ（エンジン始動）
+const uint8_t ENGOFF_IN    = 7;   // エンジンキルスイッチ（エンジン停止）
+const uint8_t MA735_CS     = 10;  // MA735 SPIセンサのCSピン（SPI通信に使用）
+const uint8_t INJ_OUT      = A0;  // 燃料噴射出力（ON:LOW, OFF:HIGH）
+const uint8_t IGN_OUT      = A1;  // 点火出力（ON:LOW, OFF:HIGH）
+const uint8_t STR_OUT      = A2;  // スタータ出力（ON:LOW, OFF:HIGH）
+const uint8_t DISRESET_OUT = A3;  // リセットランプ出力（ON:LOW, OFF:HIGH）
 
-bool EncoderEnabled   = false;
-bool MA735SPIEnabled  = true;
+bool EncoderEnabled   = true;
+bool MA735SPIEnabled  = false;
 bool AFREnabled       = false;
 bool Increase_Fuel    = false;
 bool SDMapEnabled     = false;
@@ -54,45 +54,47 @@ SPISettings ma735Settings(12000000, MSBFIRST, SPI_MODE0);
 //-----------------------------------------------------------------------------
 // グローバル変数（volatile指定）
 //-----------------------------------------------------------------------------
-volatile unsigned long tachoBefore  = 0;
-volatile unsigned long tachoAfter   = 0;
-volatile unsigned long tachoWidth   = 0;
-volatile uint16_t      tachoRpm     = 0;
-volatile float         Ne_deg       = 0.0;
-volatile int16_t       Ne_rev       = 0;
+volatile unsigned long tachoBefore  = 0;  // NE_Z_INの立ち上がりで更新
+volatile unsigned long tachoAfter   = 0;  // NE_Z_INの立ち下がりで更新
+volatile unsigned long tachoWidth   = 0;  // NE_Z_INのパルス幅
+volatile uint16_t      tachoRpm     = 0;  // NE_Z_INの回転数（RPM）
+volatile float         Ne_deg       = 0.0;  // クランク角度（CA）
+volatile int16_t       Ne_rev       = 0;  // クランク回転数（回転数）
 
-volatile unsigned long speedBefore  = 0;
-volatile unsigned long speedAfter   = 0;
-volatile unsigned long speedWidth   = 0;
-volatile unsigned long distancemm   = 0;
-volatile uint16_t      distance     = 0;
-volatile unsigned long speed        = 0;
+volatile unsigned long speedBefore  = 0;  // WH_INの立ち上がりで更新
+volatile unsigned long speedAfter   = 0;  // WH_INの立ち下がりで更新
+volatile unsigned long speedWidth   = 0;  // WH_INのパルス幅
+volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
+volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
+volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-volatile uint8_t  calculatedINJ_time = 0;
-volatile int16_t  calculatedIGN_CA   = 0;
-volatile uint8_t  INJ_Status         = 1;
-volatile uint8_t  IGN_Status         = 1;
+bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
+volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（ms）
+volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
+uint8_t INJ_STR_CA = 65;                  // 燃料噴射タイミング角度（CA）
+volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
+volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
 
-volatile unsigned long timeNow_INJ_ON  = 0;
-volatile unsigned long timeNow_INJ_OFF = 0;
-volatile unsigned long timeNow_IGN_ON  = 0;
-volatile unsigned long timeNow_IGN_OFF = 0;
+volatile unsigned long timeNow_INJ_ON  = 0; // 燃料噴射ON時間（us）
+volatile unsigned long timeNow_INJ_OFF = 0; // 燃料噴射OFF時間（us）
+volatile unsigned long timeNow_IGN_ON  = 0; // 点火ON時間（us）
+volatile unsigned long timeNow_IGN_OFF = 0; // 点火OFF時間（us）
 
-volatile bool INJ_His = false;
-volatile bool IGN_His = false;
+volatile bool INJ_His = false;            // 燃料噴射履歴（ON/OFF）
+volatile bool IGN_His = false;            // 点火履歴（ON/OFF）
 
-volatile bool G_Pulse      = false;
-volatile bool G_Pulse_Flag = false;
-volatile bool CycleReset   = false;
+volatile bool G_Pulse      = false;       // G_INのパルス状態（立ち上がり）
+volatile bool G_Pulse_Flag = false;       // G_INのパルスフラグ（立ち上がり）
+volatile bool CycleReset   = false;       // サイクルリセットフラグ（立ち上がり）
 
-bool Launch = false;
-volatile float gasml       = 0.0;
-volatile float INJ_timems  = 0.0;
-volatile float dispergas   = 0.0;
-unsigned long starttime    = 0;
-volatile uint16_t worktime = 0;
+bool Launch = false;                      // スタートフラグ（エンジン始動）
+volatile float gasml       = 0.0;         // 燃料消費量（ml）
+volatile float INJ_timems  = 0.0;         // 燃料噴射時間（ms）
+volatile float dispergas   = 0.0;         // 燃費（km/L）
+unsigned long starttime    = 0;           // エンジン始動時間（ms）
+volatile uint16_t worktime = 0;           // エンジン稼働時間（秒）
 
-volatile float usecperdig = 1.0;
+volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時間（us）
 
 //-----------------------------------------------------------------------------
 // MAPテーブル（SD未使用の場合のデフォルトMAP）
@@ -105,20 +107,20 @@ struct MapEntry {
 
 const MapEntry defaultMap[] = {
   {400,  90,   0},
-  {800,  90,   5},
-  {1200, 90,   7},
-  {1600, 90,   9},
-  {2000, 90,  11},
-  {2400, 90,  13},
-  {2800, 90,  15},
-  {3200, 90,  17},
-  {3600, 90,  17},
-  {4000, 90,  17},
-  {4400, 90,  20},
-  {4800, 90,  20},
-  {5200, 90,  20},
-  {5600, 90,  20},
-  {6000, 90,  20}
+  {800,  90,  35},
+  {1200, 90,  37},
+  {1600, 90,  39},
+  {2000, 90,  41},
+  {2400, 90,  43},
+  {2800, 90,  45},
+  {3200, 90,  47},
+  {3600, 90,  47},
+  {4000, 90,  47},
+  {4400, 90,  50},
+  {4800, 90,  50},
+  {5200, 90,  50},
+  {5600, 90,  50},
+  {6000, 90,  50}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -289,8 +291,8 @@ void Routine() {
     CycleReset = false;
   }
   
-  if (INJ_Status == 1 && !INJ_His) {
-    if (Ne_deg >= calculatedIGN_CA) {
+  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
+    if (Ne_deg >= INJ_STR_CA) {
       timeNow_INJ_ON = micros();
       INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
@@ -311,7 +313,7 @@ void Routine() {
     }
   }
   
-  if (IGN_Status == 1 && !IGN_His) {
+  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
     if (Ne_deg >= (360 - calculatedIGN_CA)) {
       timeNow_IGN_ON = micros();
       IGN_His = true;
@@ -331,11 +333,15 @@ void Routine() {
     if (fastestdigitalRead(STR_IN) == LOW) {
       fastestdigitalWrite(STR_OUT, LOW);
       Launch = true;
+      ENG_ON = true;
       if (starttime == 0)
         starttime = millis();
     } else {
       fastestdigitalWrite(STR_OUT, HIGH);
-    }
+    }    
+  }
+  else {
+    ENG_ON = false;
   }
 }
 
