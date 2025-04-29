@@ -68,10 +68,11 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
+bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
-volatile uint8_t  start_INJ_time     = 90; // 始動時の燃料噴射時間（x0.1ms）
-volatile int16_t  start_IGN_CA       = 0; // 始動時の燃料噴射タイミング角度（CA）
+volatile uint8_t  start_INJ_time     = 90;  // 始動時の燃料噴射時間（x0.1ms）
+volatile int16_t  start_IGN_CA       = 30;  // 始動時の点火タイミング進角角度（CA）
 volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -80,6 +81,9 @@ volatile unsigned long timeNow_INJ_ON  = 0; // 燃料噴射ON時間（us）
 volatile unsigned long timeNow_INJ_OFF = 0; // 燃料噴射OFF時間（us）
 volatile unsigned long timeNow_IGN_ON  = 0; // 点火ON時間（us）
 volatile unsigned long timeNow_IGN_OFF = 0; // 点火OFF時間（us）
+
+volatile bool INJ_His = false;            // 燃料噴射履歴（ON/OFF）
+volatile bool IGN_His = false;            // 点火履歴（ON/OFF）
 
 volatile bool G_Pulse      = false;       // G_INのパルス状態（立ち上がり）
 volatile bool G_Pulse_Flag = false;       // G_INのパルスフラグ（立ち上がり）
@@ -105,20 +109,20 @@ struct MapEntry {
 
 const MapEntry defaultMap[] = {
   {400,  90,   0},
-  {800,  90,  35},
-  {1200, 90,  37},
-  {1600, 90,  39},
-  {2000, 90,  41},
-  {2400, 90,  43},
-  {2800, 90,  45},
-  {3200, 90,  47},
-  {3600, 90,  47},
-  {4000, 90,  47},
-  {4400, 90,  50},
-  {4800, 90,  50},
-  {5200, 90,  50},
-  {5600, 90,  50},
-  {6000, 90,  50}
+  {800,  90,  55},
+  {1200, 90,  57},
+  {1600, 90,  59},
+  {2000, 90,  61},
+  {2400, 90,  63},
+  {2800, 90,  65},
+  {3200, 90,  67},
+  {3600, 90,  67},
+  {4000, 90,  67},
+  {4400, 90,  70},
+  {4800, 90,  70},
+  {5200, 90,  70},
+  {5600, 90,  70},
+  {6000, 90,  70}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -190,7 +194,6 @@ void IRAM_ATTR G_PULSE_ISR() {
 
 //-----------------------------------------------------------------------------
 // MA735 SPIによる角度取得
-//-----------------------------------------------------------------------------
 int16_t readMA735SPI() {
   static uint16_t last_rd = 0;
   static unsigned long last_rd_time = 0;
@@ -246,29 +249,27 @@ void updateEngineMap() {
       // calculatedIGN_CA   = 0;
       // return;
     }
+    // calculatedINJ_time = 0;
+    // calculatedIGN_CA   = 0;
   }
 }
 
 //-----------------------------------------------------------------------------
-// 燃費計算
-//-----------------------------------------------------------------------------
-float calculateFuelConsumption(unsigned long INJ_OFF, unsigned long INJ_ON) {
-  float _gasml = (((INJ_OFF - INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
-  return _gasml;
-}
-
-//-----------------------------------------------------------------------------
-// サイクルリセット(クランク角 0CAで実行)
+// サイクルリセット
 //-----------------------------------------------------------------------------
 void cycleReset() {
   updateEngineMap();
   if (tachoRpm > TACHO_RPM_MAX) {
     INJ_Status = 0;
     IGN_Status = 0;
+    timeNow_INJ_ON  = 0;
+    timeNow_INJ_OFF = 0;
   } else {
     INJ_Status = 1;
     IGN_Status = 1;
   }
+  INJ_His = false;
+  IGN_His = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -285,7 +286,7 @@ void Routine() {
   
   if (!EncoderEnabled && !MA735SPIEnabled) {
     if (usecperdig > 1e-3)
-      Ne_deg += (uint16_t)(ROUTINE_CYCLE_US / usecperdig);
+      Ne_deg += (int16_t)(ROUTINE_CYCLE_US / usecperdig);
   }
   
   if (fastestdigitalRead(G_IN) == LOW) {
@@ -302,38 +303,11 @@ void Routine() {
     cycleReset();
     CycleReset = false;
   }
-
-  // キルスイッチ・スタートスイッチの状態を確認
-  if (fastestdigitalRead(ENGOFF_IN) == LOW) {
-    if (INJ_Status == 0) {
-      INJ_Status = 1;
-    }
-    if (IGN_Status == 0) {
-      IGN_Status = 1;
-    }
-    if (fastestdigitalRead(STR_IN) == LOW) {
-      fastestdigitalWrite(STR_OUT, LOW);
-      Launch = true;
-      if (starttime == 0)
-        starttime = millis();
-    } else {
-      fastestdigitalWrite(STR_OUT, HIGH);
-    }    
-  }
-  else {
-    INJ_Status = 0;
-    IGN_Status = 0;
-  }
   
-  if (INJ_Status == 0) {
-    timeNow_INJ_OFF = micros();
-    fastestdigitalWrite(INJ_OUT, HIGH);
-    gasml += calculateFuelConsumption(timeNow_INJ_OFF, timeNow_INJ_ON);
-  }
-
-  if (INJ_Status == 1) {
+  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
     if (Ne_deg >= INJ_STR_CA) {
       timeNow_INJ_ON = micros();
+      INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
       INJ_Status = 2;
     }
@@ -348,28 +322,39 @@ void Routine() {
       timeNow_INJ_OFF = micros();
       fastestdigitalWrite(INJ_OUT, HIGH);
       INJ_Status = 1;
-      gasml += calculateFuelConsumption(timeNow_INJ_OFF, timeNow_INJ_ON);
+      gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
     }
   }
-
-  if (IGN_Status == 0) {
-    fastestdigitalWrite(IGN_OUT, HIGH);
-  }
   
-  if (IGN_Status == 1) {
-    if (Ne_deg >= 360 - calculatedIGN_CA) {
+  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
+    if (Ne_deg >= (360 - calculatedIGN_CA)) {
       timeNow_IGN_ON = micros();
+      IGN_His = true;
       fastestdigitalWrite(IGN_OUT, LOW);
       IGN_Status = 2;
     }
   }
-
   if (IGN_Status == 2) {
     if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
       timeNow_IGN_OFF = micros();
       fastestdigitalWrite(IGN_OUT, HIGH);
       IGN_Status = 1;
     }
+  }
+  
+  if (fastestdigitalRead(ENGOFF_IN) == LOW) {
+    if (fastestdigitalRead(STR_IN) == LOW) {
+      fastestdigitalWrite(STR_OUT, LOW);
+      Launch = true;
+      ENG_ON = true;
+      if (starttime == 0)
+        starttime = millis();
+    } else {
+      fastestdigitalWrite(STR_OUT, HIGH);
+    }    
+  }
+  else {
+    ENG_ON = false;
   }
 }
 
@@ -415,7 +400,7 @@ void statusTask(void *pvParameters) {
       Serial.print("\t");
       Serial.print(worktime);
       Serial.print("\t");
-      Serial.print(Ne_deg, 1);
+      Serial.print(Ne_deg);
       Serial.println();
     }
     
