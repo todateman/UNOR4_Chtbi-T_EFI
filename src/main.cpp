@@ -72,7 +72,7 @@ bool ENG_ON = false;                      // エンジンONフラグ（キルス
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
 volatile uint8_t  start_INJ_time     = 90;  // 始動時の燃料噴射時間（x0.1ms）
-volatile int16_t  start_IGN_CA       = 30;  // 始動時の点火タイミング進角角度（CA）
+volatile int16_t  start_IGN_CA       = 35;  // 始動時の点火タイミング進角角度（CA）
 volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -104,25 +104,25 @@ volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時
 struct MapEntry {
   uint16_t rpm;
   uint8_t inj_time;
-  int8_t ign_ca;
+  uint16_t ign_ca;
 };
 
 const MapEntry defaultMap[] = {
   {400,  90,   0},
-  {800,  90,  55},
-  {1200, 90,  57},
-  {1600, 90,  59},
-  {2000, 90,  61},
-  {2400, 90,  63},
-  {2800, 90,  65},
-  {3200, 90,  67},
-  {3600, 90,  67},
-  {4000, 90,  67},
-  {4400, 90,  70},
-  {4800, 90,  70},
-  {5200, 90,  70},
-  {5600, 90,  70},
-  {6000, 90,  70}
+  {800,  90,  95},
+  {1200, 90,  99},
+  {1600, 90,  103},
+  {2000, 90,  107},
+  {2400, 80,  111},
+  {2800, 70,  115},
+  {3200, 60,  119},
+  {3600, 50,  123},
+  {4000, 40,  127},
+  {4400, 40,  131},
+  {4800, 40,  135},
+  {5200, 40,  139},
+  {5600, 40,  139},
+  {6000, 40,  139}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -194,6 +194,7 @@ void IRAM_ATTR G_PULSE_ISR() {
 
 //-----------------------------------------------------------------------------
 // MA735 SPIによる角度取得
+//-----------------------------------------------------------------------------
 int16_t readMA735SPI() {
   static uint16_t last_rd = 0;
   static unsigned long last_rd_time = 0;
@@ -245,12 +246,10 @@ void updateEngineMap() {
           return;
         }
       }
-      // calculatedINJ_time = 0;
-      // calculatedIGN_CA   = 0;
-      // return;
+      calculatedINJ_time = 0;
+      calculatedIGN_CA   = 0;
+      return;
     }
-    // calculatedINJ_time = 0;
-    // calculatedIGN_CA   = 0;
   }
 }
 
@@ -334,6 +333,7 @@ void Routine() {
       IGN_Status = 2;
     }
   }
+
   if (IGN_Status == 2) {
     if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
       timeNow_IGN_OFF = micros();
