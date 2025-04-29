@@ -71,8 +71,8 @@ volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
-volatile uint8_t  start_INJ_time     = 90;  // 始動時の燃料噴射時間（x0.1ms）
-volatile int16_t  start_IGN_CA       = 35;  // 始動時の点火タイミング進角角度（CA）
+volatile uint8_t  start_INJ_time     = 120; // 始動時の燃料噴射時間（x0.1ms）
+volatile int16_t  start_IGN_CA       = 45;  // 始動時の点火タイミング進角角度（CA）
 volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -109,20 +109,20 @@ struct MapEntry {
 
 const MapEntry defaultMap[] = {
   {400,  90,   0},
-  {800,  90,  95},
-  {1200, 90,  99},
-  {1600, 90,  103},
-  {2000, 90,  107},
-  {2400, 80,  111},
-  {2800, 70,  115},
-  {3200, 60,  119},
-  {3600, 50,  123},
-  {4000, 40,  127},
-  {4400, 40,  131},
-  {4800, 40,  135},
-  {5200, 40,  139},
-  {5600, 40,  139},
-  {6000, 40,  139}
+  {800,  90,  85},
+  {1200, 90,  90},
+  {1600, 80,  95},
+  {2000, 70,  100},
+  {2400, 70,  100},
+  {2800, 70,  110},
+  {3200, 70,  115},
+  {3600, 70,  120},
+  {4000, 70,  125},
+  {4400, 70,  130},
+  {4800, 70,  135},
+  {5200, 70,  140},
+  {5600, 70,  140},
+  {6000, 70,  140}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
