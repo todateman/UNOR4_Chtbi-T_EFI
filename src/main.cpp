@@ -69,11 +69,12 @@ volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
 bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
+volatile int16_t  calculatedINJ_CA   = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
+int16_t  start_INJ_CA                = 0;  // 始動時の燃料噴射タイミング角度（CA）
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
 int16_t  start_IGN_CA                = 75;  // 始動時の点火タイミング進角角度（CA）
-volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
 
@@ -106,26 +107,27 @@ volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時
 //-----------------------------------------------------------------------------
 struct MapEntry {
   uint16_t rpm;
+  uint16_t inj_ca;
   uint8_t inj_time;
   uint16_t ign_ca;
 };
 
 const MapEntry defaultMap[] = {
-  {400,  90, 65},
-  {800,  90, 65},
-  {1200, 90, 65},
-  {1600, 90, 80},
-  {2000, 90, 80},
-  {2400, 85, 80},
-  {2800, 85, 80},
-  {3200, 75, 90},
-  {3600, 72, 110},
-  {4000, 68, 115},
-  {4400, 65, 120},
-  {4800, 63, 120},
-  {5200, 57, 120},
-  {5600, 57, 120},
-  {6000, 57, 120}
+  {400,  0, 90, 65},
+  {800,  0, 90, 65},
+  {1200, 0, 90, 65},
+  {1600, 0, 90, 80},
+  {2000, 0, 90, 80},
+  {2400, 0, 85, 80},
+  {2800, 0, 85, 80},
+  {3200, 0, 75, 90},
+  {3600, 0, 72, 110},
+  {4000, 0, 68, 115},
+  {4400, 0, 65, 120},
+  {4800, 0, 63, 120},
+  {5200, 0, 57, 120},
+  {5600, 0, 57, 120},
+  {6000, 0, 57, 120}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -239,6 +241,7 @@ int16_t readMA735SPI() {
 void updateEngineMap() {
   // スタータONの場合
   if (startState == LOW) {
+    calculatedINJ_CA   = start_INJ_CA;
     calculatedINJ_time = start_INJ_time;
     calculatedIGN_CA   = start_IGN_CA;
   }
@@ -248,13 +251,16 @@ void updateEngineMap() {
       // SDカードMAP読み込みの場合（parseCSV()でロードしたデータを利用）
       // ここでは未実装（必要なら実装）
     } else {
-      for (uint8_t i = 0; i < defaultMapSize; i++) {
+      for (uint8_t i = 0; i < defaultMapSize; i++) {    // デフォルトMAPを使用
         if (tachoRpm < defaultMap[i].rpm) {
+          calculatedINJ_CA   = defaultMap[i].inj_ca;
           calculatedINJ_time = defaultMap[i].inj_time;
           calculatedIGN_CA   = defaultMap[i].ign_ca;
           return;
         }
       }
+      // デフォルトMAPの最大値を超えた場合はオーバーレブ対策の数値を使用
+      calculatedINJ_CA   = 0;
       calculatedINJ_time = 0;
       calculatedIGN_CA   = 0;
       return;
@@ -351,11 +357,11 @@ void Routine() {
   lastStartState = startState;
   
   if (ENG_ON && INJ_Status == 1 && !INJ_His) {
-    // INJ_STR_CA < 360 のときは Ne_deg >= INJ_STR_CA、
-    // それ以外（>=360）のときは wrap-around を考慮して Ne_deg >= INJ_STR_CA または Ne_deg >= 0
-    bool injectNow = (INJ_STR_CA < 360)
-                     ? (Ne_deg >= INJ_STR_CA)
-                     : (Ne_deg >= INJ_STR_CA || Ne_deg >= 0);
+    // calculatedINJ_CA < 360 のときは Ne_deg >= calculatedINJ_CA、
+    // それ以外（>=360）のときは wrap-around を考慮して Ne_deg >= calculatedINJ_CA または Ne_deg >= 0
+    bool injectNow = (calculatedINJ_CA < 360)
+                     ? (Ne_deg >= calculatedINJ_CA)
+                     : (Ne_deg >= calculatedINJ_CA || Ne_deg >= 0);
 
     if (injectNow) {
       timeNow_INJ_ON = micros();
@@ -482,6 +488,7 @@ void statusTask(void *pvParameters) {
     if (micros() - tachoBefore >= 1200000UL) {
       tachoRpm = 0;
       usecperdig = 1.0;
+      calculatedINJ_CA = 0;
       calculatedINJ_time = 0;
       calculatedIGN_CA = 0;
     }
