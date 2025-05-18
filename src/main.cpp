@@ -132,12 +132,13 @@ const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 //-----------------------------------------------------------------------------
 // 関数宣言（詳細実装は下部）
 //-----------------------------------------------------------------------------
-void updateEngineMap();
-void cycleReset();
-void Routine();
-int16_t readMA735SPI();
-void updateAFR();  // AFR関連は必要に応じて実装
-void parseCSV();   // SDカード用
+void updateEngineMap();   // エンジンMAP更新
+void cycleReset();        // エンジン制御サイクルリセット
+void Reset_INJ_Flag();    // 燃料噴射フラグリセット
+void Routine();           // AGTimerより周期実行されるリアルタイム処理  
+int16_t readMA735SPI();   // MA735 SPIセンサからクランク角取得
+void updateAFR();         // AFR関連は必要に応じて実装
+void parseCSV();          // SDカード用
 
 //-----------------------------------------------------------------------------
 // スタブ実装（リンクエラー解消用）
@@ -178,10 +179,15 @@ void IRAM_ATTR ReadNe_ISR() {
     tachoWidth = now - tachoBefore;
     tachoBefore = now;
     tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
+    // クランク角360CA以上 & カム角センサONのフラグがONの場合、サイクルリセット処理を有効化
     if (Ne_deg > 360 && G_Pulse_Flag) {
       Ne_deg = 0;
       G_Pulse_Flag = false;
       CycleReset = true;
+    }
+    // クランク角360CAの場合に燃料噴射のフラグをリセット
+    if (Ne_deg < 720 && INJ_His) {
+      Reset_INJ_Flag();
     }
   }
 }
@@ -265,12 +271,22 @@ void cycleReset() {
     timeNow_INJ_ON  = 0;
     timeNow_INJ_OFF = 0;
   }
-  INJ_Status = 1;
+  // INJ_Status = 1;
   IGN_Status = 1;
-  INJ_His = false;
+  // INJ_His = false;
   IGN_His = false;
   G_Pulse = false;
   G_Pulse_Flag = false;
+}
+
+//-----------------------------------------------------------------------------
+// 燃料噴射フラグリセット
+//-----------------------------------------------------------------------------
+void Reset_INJ_Flag() {
+  INJ_His = false;
+  INJ_Status = 1;
+  timeNow_INJ_ON = 0;
+  timeNow_INJ_OFF = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -335,11 +351,17 @@ void Routine() {
   lastStartState = startState;
   
   if (ENG_ON && INJ_Status == 1 && !INJ_His) {
-    if (Ne_deg >= INJ_STR_CA) {
+    // INJ_STR_CA < 360 のときは Ne_deg >= INJ_STR_CA、
+    // それ以外（>=360）のときは wrap-around を考慮して Ne_deg >= INJ_STR_CA または Ne_deg >= 0
+    bool injectNow = (INJ_STR_CA < 360)
+                     ? (Ne_deg >= INJ_STR_CA)
+                     : (Ne_deg >= INJ_STR_CA || Ne_deg >= 0);
+
+    if (injectNow) {
       timeNow_INJ_ON = micros();
-      INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
       INJ_Status = 2;
+      INJ_His    = true;
     }
   }
   
