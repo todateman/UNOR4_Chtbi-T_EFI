@@ -68,7 +68,7 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
+bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
@@ -111,21 +111,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  90, 65},
-  {800,  90, 65},
-  {1200, 90, 65},
+  {400, 90, 75},
+  {800, 90, 75},
+  {1200, 90, 75},
   {1600, 90, 80},
   {2000, 90, 80},
   {2400, 85, 80},
-  {2800, 80, 80},
+  {2800, 85, 80},
   {3200, 75, 90},
   {3600, 72, 110},
-  {4000, 68, 135},
-  {4400, 65, 170},
-  {4800, 63, 215},
-  {5200, 61, 260},
-  {5600, 59, 305},
-  {6000, 57, 350}
+  {4000, 68, 115},
+  {4400, 65, 125},
+  {4800, 63, 125},
+  {5200, 57, 125},
+  {5600, 57, 125},
+  {6000, 57, 125}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
