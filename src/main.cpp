@@ -68,11 +68,9 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-bool ENG_ON = false;                      // エンジンONフラグ（キルスイッチに連動）
-volatile int16_t  calculatedINJ_CA   = 0; // 燃料噴射タイミング角度（CA）
+bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
-int16_t  start_INJ_CA                = 0;  // 始動時の燃料噴射タイミング角度（CA）
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
 int16_t  start_IGN_CA                = 75;  // 始動時の点火タイミング進角角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -113,21 +111,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  0, 90, 65},
-  {800,  0, 90, 65},
-  {1200, 0, 90, 65},
-  {1600, 0, 90, 80},
-  {2000, 0, 90, 80},
-  {2400, 0, 85, 80},
-  {2800, 0, 85, 80},
-  {3200, 0, 75, 90},
-  {3600, 0, 72, 110},
-  {4000, 0, 68, 115},
-  {4400, 0, 65, 120},
-  {4800, 0, 63, 120},
-  {5200, 0, 57, 120},
-  {5600, 0, 57, 120},
-  {6000, 0, 57, 120}
+  {400, 90, 75},
+  {800, 90, 75},
+  {1200, 90, 75},
+  {1600, 90, 80},
+  {2000, 90, 80},
+  {2400, 85, 80},
+  {2800, 85, 80},
+  {3200, 75, 90},
+  {3600, 72, 110},
+  {4000, 68, 115},
+  {4400, 65, 125},
+  {4800, 63, 125},
+  {5200, 57, 125},
+  {5600, 57, 125},
+  {6000, 57, 125}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -241,7 +239,6 @@ int16_t readMA735SPI() {
 void updateEngineMap() {
   // スタータONの場合
   if (startState == LOW) {
-    calculatedINJ_CA   = start_INJ_CA;
     calculatedINJ_time = start_INJ_time;
     calculatedIGN_CA   = start_IGN_CA;
   }
@@ -277,22 +274,12 @@ void cycleReset() {
     timeNow_INJ_ON  = 0;
     timeNow_INJ_OFF = 0;
   }
-  // INJ_Status = 1;
+  INJ_Status = 1;
   IGN_Status = 1;
-  // INJ_His = false;
+  INJ_His = false;
   IGN_His = false;
   G_Pulse = false;
   G_Pulse_Flag = false;
-}
-
-//-----------------------------------------------------------------------------
-// 燃料噴射フラグリセット
-//-----------------------------------------------------------------------------
-void Reset_INJ_Flag() {
-  INJ_His = false;
-  INJ_Status = 1;
-  timeNow_INJ_ON = 0;
-  timeNow_INJ_OFF = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -403,7 +390,7 @@ void Routine() {
   
   // キルスイッチの状態を確認
   if (fastestdigitalRead(ENGOFF_IN) == LOW) {   // キルスイッチがONの場合（運転状態）
-    if (startState == LOW && tachoRpm < 1000) {   // スタートボタンON & エンジン回転数が1000rpm未満の場合
+    if (startState == LOW) {                      // スタートボタンON場合
       STR_IN_state = true;
       fastestdigitalWrite(STR_OUT, LOW);
       Launch = true;
