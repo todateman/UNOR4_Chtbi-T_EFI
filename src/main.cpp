@@ -73,6 +73,7 @@ volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
 int16_t  start_IGN_CA                = 75;  // 始動時の点火タイミング進角角度（CA）
+volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
 
@@ -105,7 +106,6 @@ volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時
 //-----------------------------------------------------------------------------
 struct MapEntry {
   uint16_t rpm;
-  uint16_t inj_ca;
   uint8_t inj_time;
   uint16_t ign_ca;
 };
@@ -132,13 +132,12 @@ const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 //-----------------------------------------------------------------------------
 // 関数宣言（詳細実装は下部）
 //-----------------------------------------------------------------------------
-void updateEngineMap();   // エンジンMAP更新
-void cycleReset();        // エンジン制御サイクルリセット
-void Reset_INJ_Flag();    // 燃料噴射フラグリセット
-void Routine();           // AGTimerより周期実行されるリアルタイム処理  
-int16_t readMA735SPI();   // MA735 SPIセンサからクランク角取得
-void updateAFR();         // AFR関連は必要に応じて実装
-void parseCSV();          // SDカード用
+void updateEngineMap();
+void cycleReset();
+void Routine();
+int16_t readMA735SPI();
+void updateAFR();  // AFR関連は必要に応じて実装
+void parseCSV();   // SDカード用
 
 //-----------------------------------------------------------------------------
 // スタブ実装（リンクエラー解消用）
@@ -178,16 +177,14 @@ void IRAM_ATTR ReadNe_ISR() {
     unsigned long now = micros();
     tachoWidth = now - tachoBefore;
     tachoBefore = now;
-    tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
-    // クランク角360CA以上 & カム角センサONのフラグがONの場合、サイクルリセット処理を有効化
+    uint16_t _tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
+    if (_tachoRpm < 10000) {  // 10000 RPMを超える異常値は無視
+      tachoRpm = _tachoRpm;
+    }
     if (Ne_deg > 360 && G_Pulse_Flag) {
       Ne_deg = 0;
       G_Pulse_Flag = false;
       CycleReset = true;
-    }
-    // クランク角360CAの場合に燃料噴射のフラグをリセット
-    if (Ne_deg < 720 && INJ_His) {
-      Reset_INJ_Flag();
     }
   }
 }
@@ -248,16 +245,13 @@ void updateEngineMap() {
       // SDカードMAP読み込みの場合（parseCSV()でロードしたデータを利用）
       // ここでは未実装（必要なら実装）
     } else {
-      for (uint8_t i = 0; i < defaultMapSize; i++) {    // デフォルトMAPを使用
+      for (uint8_t i = 0; i < defaultMapSize; i++) {
         if (tachoRpm < defaultMap[i].rpm) {
-          calculatedINJ_CA   = defaultMap[i].inj_ca;
           calculatedINJ_time = defaultMap[i].inj_time;
           calculatedIGN_CA   = defaultMap[i].ign_ca;
           return;
         }
       }
-      // デフォルトMAPの最大値を超えた場合はオーバーレブ対策の数値を使用
-      calculatedINJ_CA   = 0;
       calculatedINJ_time = 0;
       calculatedIGN_CA   = 0;
       return;
@@ -344,17 +338,11 @@ void Routine() {
   lastStartState = startState;
   
   if (ENG_ON && INJ_Status == 1 && !INJ_His) {
-    // calculatedINJ_CA < 360 のときは Ne_deg >= calculatedINJ_CA、
-    // それ以外（>=360）のときは wrap-around を考慮して Ne_deg >= calculatedINJ_CA または Ne_deg >= 0
-    bool injectNow = (calculatedINJ_CA < 360)
-                     ? (Ne_deg >= calculatedINJ_CA)
-                     : (Ne_deg >= calculatedINJ_CA || Ne_deg >= 0);
-
-    if (injectNow) {
+    if (Ne_deg >= INJ_STR_CA) {
       timeNow_INJ_ON = micros();
+      INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
       INJ_Status = 2;
-      INJ_His    = true;
     }
   }
   
@@ -475,7 +463,6 @@ void statusTask(void *pvParameters) {
     if (micros() - tachoBefore >= 1200000UL) {
       tachoRpm = 0;
       usecperdig = 1.0;
-      calculatedINJ_CA = 0;
       calculatedINJ_time = 0;
       calculatedIGN_CA = 0;
     }
