@@ -485,9 +485,9 @@ void setup() {
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
   pinMode(ENGOFF_IN, INPUT_PULLUP);
-  pinMode(NE_A_IN, INPUT);
-  pinMode(NE_B_IN, INPUT);
-  pinMode(NE_Z_IN, INPUT);
+  pinMode(NE_A_IN, INPUT_PULLUP);
+  pinMode(NE_B_IN, INPUT_PULLUP);
+  pinMode(NE_Z_IN, INPUT_PULLUP);
   pinMode(INJ_OUT, OUTPUT);
   pinMode(IGN_OUT, OUTPUT);
   pinMode(STR_OUT, OUTPUT);
