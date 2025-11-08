@@ -1,672 +1,545 @@
-// http://akiracing.com/2018/01/12/arduino_tachometer/
-// ECU Shield は入出力がHIGH/LOWが反転しているので注意
-//#define CSV_PARSER_DONT_IMPORT_SD
 #include <Arduino.h>
-//#include <CSV_Parser.h>  // https://github.com/michalmonday/CSV-Parser-for-Arduino
 #include <SPI.h>
 #include "SD.h"
-#include "fastestdigitalRW.hpp"
+#include "fastestdigitalRW.hpp"  :contentReference[oaicite:0]{index=0}
 #include "AGTimerR4.h"
 #include <Arduino_FreeRTOS.h>
-#include <Wire.h>
-#include <U8x8lib.h>
-#include "AS5600.h"
 
-//U8X8_SH1107_64X128_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 1.3"
-U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);  // 0.91"
+// IRAM_ATTR が未定義の場合は空定義を追加（ESP32等でなければ不要）
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
 
-// 磁気エンコーダタスクのハンドル
-TaskHandle_t UpdateReadNeHandle;
-// ステータス出力タスクのハンドル
-TaskHandle_t UpdatemainloopHandle;
+//-----------------------------------------------------------------------------
+// 前方宣言（setup()で使う割り込み関数の宣言）
+//-----------------------------------------------------------------------------
+void IRAM_ATTR WH_PULSE_ISR();
+void IRAM_ATTR ReadNe_ISR();
+void IRAM_ATTR G_PULSE_ISR();
 
-AS5600 as5600;             // 磁気エンコーダ
+//-----------------------------------------------------------------------------
+// 定数・設定
+//-----------------------------------------------------------------------------
 
-uint8_t IGN_Standard = 0;  // 点火時期基準[CA] 全体のMAPの基準になる点火時期。0でTDC,+XXで進角,-XXで遅角
+#define ROUTINE_CYCLE_US     24
+#define STATUS_TASK_DELAY_MS 500
 
-volatile unsigned long tachoBefore = 0;     // カム角センサーの前回の反応時の時間
-volatile unsigned long tachoAfter = 0;      // カム角センサーの今回の反応時の時間
-volatile unsigned long tachoWidth = 0;      // カム一回転の時間　tachoAfter - tachoBefore
-volatile unsigned long speedBefore = 0;     // 車軸パルスセンサーの前回の反応時の時間
-volatile unsigned long speedAfter = 0;      // 車軸パルスセンサーの今回の反応時の時間
-volatile unsigned long speedWidth = 0;      // 車軸一回転の時間　speedAfter - speedBefore
-volatile float Ne_deg = 0.0;                // 磁気エンコーダのクランク角(deg)
-volatile uint16_t Ne_deg_raw = 0;           // 磁気エンコーダの生値
-volatile int8_t now_Revolution = 0;         // クランクシャフトの回転数(周目)
-volatile unsigned long timeNow_INJ_ON = 0;  // 噴射開始時の時間
-volatile unsigned long timeNow_INJ_OFF = 0; // 噴射終了時の時間
-volatile unsigned long timeNow_IGN_ON = 0;  // 点火開始時の時間
-volatile unsigned long timeNow_IGN_OFF = 0; // 噴射終了時の時間
-volatile unsigned long distancemm = 0;      // 走行距離積算(mm)
-volatile uint16_t distance = 0;   // 走行距離積算(m)
-volatile unsigned long speed = 0; // 速度(km/h)
-volatile uint16_t tachoRpm = 0;   // エンジンの回転数(rpm)
-volatile uint8_t INJ_time = 0;    // インジェクタ噴射時間(*0.1ms) 速度向上のため10倍して表記(1.2ms->12)
-volatile int16_t IGN_CA = 0;      // 点火時期[CA]
-volatile uint8_t INJ_Status = 1;  // 噴射ステータス(0: 無効 1: OFF 2:ON)
-volatile uint8_t IGN_Status = 1;  // 点火ステータス(0: 無効 1: OFF 2:ON)
-volatile bool INJ_His = false;    // 1サイクル中の噴射履歴
-volatile bool IGN_His = false;    // 1サイクル中の点火履歴
-volatile bool G_Pulse = false;    // カムパルス信号
-volatile bool NeReset = false;    // クランク回転数リセットフラグ
-bool OLED = false;                // OLED有効/無効
-bool Encoder = false;             // AS5600磁気エンコーダ有効/無効
-bool Serial_ON = true;            // Serial(USBシリアル)有効/無効
-bool Serial1_ON = true;           // Serial1(メーター・ロガーへのシリアル)有効/無効
+#define PERIMETER_MM         1548UL   // [mm]
+#define TACHO_RPM_MAX        6000
+#define IGNITION_HOLD_US     5000
 
-uint8_t HW_IN = 2;      // 駆動軸パルスセンサ入力・外部割込み
-uint8_t G_IN = 3;       // カム角センサ入力・外部割込み
-uint8_t STR_IN = 5;     // スタータボタン入力
-uint8_t ENGOFF_IN = 6;  // キルスイッチ入力
-uint8_t RESET_IN = 7;   // 走行距離・燃費リセットボタン入力
-uint8_t SD_IN = 9;      // microSD挿入チェック
-uint8_t INJ_OUT = A0;   // インジェクタ出力
-uint8_t IGN_OUT = A1;   // イグニッション出力
-uint8_t STR_OUT = A2;   // スタータ出力
-uint8_t DISRESET_OUT = A3;      // リセット状態出力(リセットされていればOFF)
-float usecperdig = 0.0; // クランク1°当たりの時間(usec)
-int8_t  TDC_P = -50;    //カム角センサと上死点の位相差を補正
-uint16_t perimeter = 1548;  // 車軸1回転当たりの周長(mm)
-float Ne_offset = 86.49;  // クランク角のオフセット(deg)を設定
-uint8_t INJ_STR_CA = 65;  // 燃料噴射タイミング角度(deg)を設定
-float gasml = 0.0;      // 積算燃料消費量(ml)
-float INJ_timems = 0.0; // 燃焼噴射時間(msec)
-float dispergas = 0.0;  // 燃費(km/l)
-unsigned long starttime = 0;    // 走行開始時間(msec)
-uint16_t worktime = 0;          // 走行時間(sec)
-bool Launch = false;            // 走行開始状態
-const uint8_t Routine_Cycle = 24;   // 燃料噴射・点火制御の実行サイクル(usec)
+const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
+const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
+const uint8_t NE_Z_IN      = 9;   // クランク角エンコーダBパルス(360°で1パルス)
+const uint8_t WH_IN        = 3;   // 車軸パルス（タイヤ1周で1パルス）
+const uint8_t G_IN         = 5;   // カム角センサ（クランク2周で1パルス）
+const uint8_t STR_IN       = 6;   // スタートスイッチ（エンジン始動）
+const uint8_t ENGOFF_IN    = 7;   // エンジンキルスイッチ（エンジン停止）
+const uint8_t MA735_CS     = 10;  // MA735 SPIセンサのCSピン（SPI通信に使用）
+const uint8_t INJ_OUT      = A0;  // 燃料噴射出力（ON:LOW, OFF:HIGH）
+const uint8_t IGN_OUT      = A1;  // 点火出力（ON:LOW, OFF:HIGH）
+const uint8_t STR_OUT      = A2;  // スタータ出力（ON:LOW, OFF:HIGH）
+const uint8_t DISRESET_OUT = A3;  // リセットランプ出力（ON:LOW, OFF:HIGH）
 
-const uint8_t chipSelect = 10;  // 10ピンをSSとする
-String MAPFILE = "RPM.CSV";  // 点火MAPファイル名
-bool SDMAP = false;
-uint16_t rpm1[20]; //要素記憶用の配列を作成
-uint8_t inj1[20];
-int8_t  ign1[20];
-uint8_t row;
+bool EncoderEnabled   = true;     // クランク角エンコーダ使用フラグ
+bool MA735SPIEnabled  = false;    // MA735 SPIセンサ使用フラグ
+bool AFREnabled       = false;    // A/Fセンサ使用フラグ
+bool Increase_Fuel    = false;    // A/F補正フラグ（未実装）
+bool SDMapEnabled     = false;    // SDカードMAP使用フラグ
+bool SerialUSBEnabled = true;     // USBシリアル出力フラグ
+bool Serial1Enabled   = true;     // Serial1(toメーター・ロガー)出力フラグ
 
-// 点火MAP
-void INJ_IGN() {
-  if (tachoRpm < 400) {
-    INJ_time = 90;
-    IGN_CA = 45;
-  }
-  else if (tachoRpm < 800) {
-    INJ_time = 90;
-    IGN_CA = 45;
-  }
-  else if (tachoRpm < 1200) {
-    INJ_time = 90;
-    IGN_CA = 45;
-  }
-  else if (tachoRpm < 1600) {
-    INJ_time = 90;
-    IGN_CA = 55;
-  }
-  else if (tachoRpm < 2000) {
-    INJ_time = 90;
-    IGN_CA = 65;
-  }
-  else if (tachoRpm < 2400) {
-    INJ_time = 90;
-    IGN_CA = 76;
-  }
-  else if (tachoRpm < 2800) {
-    INJ_time = 90;
-    IGN_CA = 88;
-  }
-  else if (tachoRpm < 3200) {
-    INJ_time = 90;
-    IGN_CA = 101;
-  }
-  else if (tachoRpm < 3600) {
-    INJ_time = 90;
-    IGN_CA = 115;
-  }
-  else if (tachoRpm < 4000) {
-    INJ_time = 90;
-    IGN_CA = 130;
-  }
-  else if (tachoRpm < 4400) {
-    INJ_time = 90;
-    IGN_CA = 146;
-  }
-  else if (tachoRpm < 4800) {
-    INJ_time = 90;
-    IGN_CA = 146;
-  }
-  else if (tachoRpm < 5200) {
-    INJ_time = 90;
-    IGN_CA = 146;
-  }
-  else if (tachoRpm < 5600) {
-    INJ_time = 90;
-    IGN_CA = 146;
-  }
-  else if (tachoRpm < 6000) {
-    INJ_time = 90;
-    IGN_CA = 146;
-  }
-  else {
-    INJ_time = 0;
-    IGN_CA = 0;
-  }
-  if (fastestdigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 100;
-    IGN_CA = 45;
-  }
+SPISettings ma735Settings(12000000, MSBFIRST, SPI_MODE0);
+
+//-----------------------------------------------------------------------------
+// グローバル変数（volatile指定）
+//-----------------------------------------------------------------------------
+volatile unsigned long tachoBefore  = 0;  // NE_Z_INの立ち上がりで更新
+volatile unsigned long tachoAfter   = 0;  // NE_Z_INの立ち下がりで更新
+volatile unsigned long tachoWidth   = 0;  // NE_Z_INのパルス幅
+volatile uint16_t      tachoRpm     = 0;  // NE_Z_INの回転数（RPM）
+volatile int16_t       Ne_deg       = 0;  // クランク角度（CA）
+volatile int16_t       Ne_rev       = 0;  // クランク回転数（回転数）
+
+volatile unsigned long speedBefore  = 0;  // WH_INの立ち上がりで更新
+volatile unsigned long speedAfter   = 0;  // WH_INの立ち下がりで更新
+volatile unsigned long speedWidth   = 0;  // WH_INのパルス幅
+volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
+volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
+volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
+
+bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
+volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
+volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
+uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
+int16_t  start_IGN_CA                = 75;  // 始動時の点火タイミング進角角度（CA）
+volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
+volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
+volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
+
+volatile unsigned long timeNow_INJ_ON  = 0; // 燃料噴射ON時間（us）
+volatile unsigned long timeNow_INJ_OFF = 0; // 燃料噴射OFF時間（us）
+volatile unsigned long timeNow_IGN_ON  = 0; // 点火ON時間（us）
+volatile unsigned long timeNow_IGN_OFF = 0; // 点火OFF時間（us）
+
+volatile bool INJ_His = false;            // 燃料噴射履歴（ON/OFF）
+volatile bool IGN_His = false;            // 点火履歴（ON/OFF）
+
+volatile bool G_Pulse      = false;       // G_INのパルス状態（立ち上がり）
+volatile bool G_Pulse_Flag = false;       // G_INのパルスフラグ（立ち上がり）
+volatile bool CycleReset   = false;       // サイクルリセットフラグ（立ち上がり）
+
+bool Launch = false;                      // スタートフラグ（エンジン始動）
+bool startState = HIGH;                   // スタートスイッチ状態（OFF=HIGH, ON=LOW）
+bool lastStartState = HIGH;               // スタートスイッチの前回状態   
+bool STR_IN_state = false;                // エンジン始動状態
+volatile float gasml       = 0.0;         // 燃料消費量（ml）
+volatile float INJ_timems  = 0.0;         // 燃料噴射時間（ms）
+volatile float dispergas   = 0.0;         // 燃費（km/L）
+unsigned long starttime    = 0;           // エンジン始動時間（ms）
+volatile uint16_t worktime = 0;           // エンジン稼働時間（秒）
+
+volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時間（us）
+
+//-----------------------------------------------------------------------------
+// MAPテーブル（SD未使用の場合のデフォルトMAP）
+//-----------------------------------------------------------------------------
+struct MapEntry {
+  uint16_t rpm;
+  uint8_t inj_time;
+  uint16_t ign_ca;
+};
+
+const MapEntry defaultMap[] = {
+  {400, 90, 115},
+  {800, 90, 115},
+  {1200, 90, 115},
+  {1600, 90, 120},
+  {2000, 90, 120},
+  {2400, 85, 140},
+  {2800, 85, 140},
+  {3200, 75, 150},
+  {3600, 72, 170},
+  {4000, 68, 175},
+  {4400, 65, 185},
+  {4800, 63, 185},
+  {5200, 57, 185},
+  {5600, 57, 185},
+  {6000, 57, 185}
+};
+const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
+
+//-----------------------------------------------------------------------------
+// 関数宣言（詳細実装は下部）
+//-----------------------------------------------------------------------------
+void updateEngineMap();
+void cycleReset();
+void Routine();
+int16_t readMA735SPI();
+void updateAFR();  // AFR関連は必要に応じて実装
+void parseCSV();   // SDカード用
+
+//-----------------------------------------------------------------------------
+// スタブ実装（リンクエラー解消用）
+//-----------------------------------------------------------------------------
+// updateAFR()：AFRセンサ処理（未使用の場合は空実装）
+void updateAFR() {
+  // AFRセンサ未実装の場合は何もしない
 }
 
-
-// SDの点火MAP
-void INJ_IGN_SD() {
-  for (uint8_t i = 0; i < row; i++) { //整理したデータをタブで区切って表示
-    if (tachoRpm < rpm1[i]) {
-      INJ_time = inj1[i];
-      IGN_CA = ign1[i];
-      break;
-    }
-  }
-  if (tachoRpm >= rpm1[row]){       // MAP以上の回転数(オーバーレブ)の場合
-    INJ_time = 0;
-    IGN_CA = 0;
-  }
-  if (fastestdigitalRead(STR_IN) == LOW){  // スタータボタンを押したとき
-    INJ_time = 50;
-    IGN_CA = 0;
-  }
-}
-
-// エンジン回転処理リセット
-void Cycle_Reset() {
-  if (SDMAP) {     // SD内の点火MAPが使用できる場合
-    INJ_IGN_SD();  // SDから読んだ点火MAP
-  }
-  else {
-    INJ_IGN();     // 本コード内の点火MAP
-  }
-
-  //if (INJ_time > 0) {
-  if (tachoRpm <= 6000) {
-    INJ_Status = 1;  // 噴射OFF
-    IGN_Status = 1;  // 点火OFF
-  }
-  else {
-    INJ_Status = 0;  // 噴射無効
-    IGN_Status = 0;  // 点火無効
-    timeNow_INJ_ON = NULL;
-    timeNow_INJ_OFF = NULL;
-  }
-  //INJ_Status = 1;              // 噴射ステータスOFF
-  //IGN_Status = 1;              // 点火ステータスOFF
-  INJ_His = false;               // 噴射履歴をリセット
-  IGN_His = false;               // 点火履歴をリセット
-
-  if (Encoder) {
-    Serial.print("Cycle_Reset: ");
-    Serial.println(Ne_deg);
-  }
-}
-
-// 燃料噴射・点火制御
-void Routine() {
-  Ne_deg += Routine_Cycle / usecperdig; // クランク角に時間経過分の補正値を加える
-
-  // 噴射ONステータス時
-  if ( INJ_Status == 2 ) {
-    if ( micros() - timeNow_INJ_ON >= INJ_time * 100 ){  // 噴射開始から噴射時間が経過したら
-      timeNow_INJ_OFF = micros();    // 噴射終了時の時刻を記録
-      //digitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      fastestdigitalWrite(INJ_OUT, HIGH);  // 噴射OFF
-      INJ_Status = 1;               // 噴射無効ステータス
-      gasml += ( (timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007 + 0.0015 ) / 1.5073;  // 燃料消費量(ml)を積算 2024.10.13の全国大会CN燃料結果で燃料消費量を補正
-      if (Encoder) {
-        Serial.print("INJ_OFF: ");
-        Serial.println(Ne_deg);
-      }
-    }
-  }
-
-  // 点火ONステータス時
-  if ( IGN_Status == 2 ) {
-    if ( micros() - timeNow_IGN_ON >= 5000){  // 点火維持時間(5000us)が経過したら
-      timeNow_IGN_OFF = micros();    // 点火終了時の時刻を記録
-      //digitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      fastestdigitalWrite(IGN_OUT, HIGH);  // 点火OFF
-      IGN_Status = 1;               // 点火無効ステータス
-      if (Encoder) {
-        Serial.print("IGN_OFF: ");
-        Serial.println(Ne_deg);
-      }
-    }
-  }
-
-  if (fastestdigitalRead(ENGOFF_IN) == LOW){  // キルスイッチピン(6)がOFFの場合
-    // スタータボタンを押したとき
-    if (fastestdigitalRead(STR_IN) == LOW){
-      //digitalWrite(STR_OUT, LOW);  // スタータON
-      fastestdigitalWrite(STR_OUT, LOW);  // スタータON
-      //Serial.println("STR_ON");
-      Launch = true;                      // 走行開始ON
-    }
-    else {
-      //digitalWrite(STR_OUT, HIGH);  // スタータOFF
-      fastestdigitalWrite(STR_OUT, HIGH);  // スタータOFF
-    }
-
-    // 噴射OFFステータス時
-    if ( INJ_Status == 1 && !INJ_His ) {
-      if ( Ne_deg >= INJ_STR_CA ){             // 上死点から燃料噴射タイミングの角度に達したら
-        timeNow_INJ_ON = micros();        // 噴射開始時の時刻を記録
-        INJ_His = true;                   // 噴射履歴あり
-        //digitalWrite(INJ_OUT, LOW);     // 噴射ON
-        fastestdigitalWrite(INJ_OUT, LOW);   // 噴射ON
-        INJ_Status = 2;                   // 噴射ONステータス
-        if (Encoder) {
-          Serial.print("INJ_ON:  ");
-          Serial.println(Ne_deg);
-        }
-      }
-    }
-
-  
-    //点火OFFステータス時
-    if ( IGN_Status == 1 && !IGN_His ) {  
-      if ( Ne_deg >= 360 - IGN_CA ){    // 圧縮→膨張サイクルの上死点から進角角度に達したら
-        timeNow_IGN_ON = micros();        // 点火開始時の時刻を記録
-        IGN_His = true;                   // 点火履歴あり
-        //digitalWrite(IGN_OUT, LOW);     // 点火ON
-        fastestdigitalWrite(IGN_OUT, LOW);   // 点火ON
-        IGN_Status = 2;                   // 点火ONステータス
-        if (Encoder) {
-          Serial.print("IGN_ON:  ");
-          Serial.println(Ne_deg);
-        }
-      }
-    }
-  }
-}
-
-// シリアル送信
-void Serialsend() {
-  if (Serial_ON){                             // USBシリアルが有効なら
-    Serial.print(tachoRpm);
-    Serial.print("\t");
-    Serial.print(INJ_timems, 1);
-    Serial.print("\t");
-    Serial.print(IGN_CA);
-    Serial.print("\t");
-    Serial.print(speed);
-    Serial.print("\t");
-    Serial.print(distance);
-    Serial.print("\t");
-    Serial.print(gasml, 1);
-    Serial.print("\t");
-    Serial.print(dispergas, 1);
-    Serial.print("\t");
-    Serial.print(worktime);
-    Serial.print("\t");
-    if (!Encoder) {
-      Serial.print("(");
-    }
-    Serial.print(Ne_deg);
-    Serial.print("'");
-    if (!Encoder) {
-      Serial.print(")");
-    }
-    if (Encoder) {
-//      Serial.print("\t");
-//      Serial.print(Ne_deg_raw);
-      Serial.print("\t");
-      Serial.print(now_Revolution);
-      Serial.print("\t");
-      Serial.print(G_Pulse, HEX);
-      Serial.print("\t");
-      Serial.print(NeReset, HEX);
-    }
-    Serial.println();
-  }
-  if (Serial1_ON){                             // 外部シリアルが有効なら
-    Serial1.print(tachoRpm);
-    Serial1.print(",");
-    Serial1.print(INJ_timems, 1);
-    Serial1.print(",");
-    Serial1.print(IGN_CA);
-    Serial1.print(",");
-    Serial1.print(speed);
-    Serial1.print(",");
-    Serial1.print(distance);
-    Serial1.print(",");
-    Serial1.print(gasml, 1);
-    Serial1.print(",");
-    Serial1.print(dispergas, 1);
-    Serial1.print(",");
-    Serial1.println(worktime);
-  }
-
-  if(OLED) {                                  // OLEDが接続されていれば
-    u8x8.setCursor(3, 0);
-    u8x8.print(tachoRpm);
-    u8x8.print("   ");
-    u8x8.setCursor(3, 1);
-    u8x8.print(INJ_timems, 1);
-    u8x8.setCursor(12, 1);
-    u8x8.print(IGN_CA);
-    u8x8.print(" ");
-    u8x8.setCursor(3, 2);
-    u8x8.print(speed);
-    u8x8.print(" ");
-    u8x8.setCursor(12, 2);
-    u8x8.print(distance);
-    u8x8.setCursor(3, 3);
-    u8x8.print(gasml, 1);
-    u8x8.setCursor(12, 3);
-    u8x8.print(dispergas, 1);
-    //u8x8.print(" ");
-  }
-}
-
-// 車軸パルスから走行距離・速度を算出
-void HW_PULSE() {
-  speedAfter = micros();  // 現在の時刻を記録
-  speedWidth = speedAfter - speedBefore;  // 前回と今回の時間の差(車軸1回転当たりの時間 usec)を計算
-  speed = 3600 * perimeter / speedWidth;  // 速度(km/h = 3600 * km/sec = 3600 * mm/usec)を計算
-  speedBefore = speedAfter;        // 今回の値を前回の値に代入する
-  distancemm += perimeter;         //走行距離(mm)を積算
-  distance = distancemm * 0.001;   //走行距離(m)を積算
-}
-
-// カム角センサーから回転数計算
-void tachometer() {
-  tachoAfter = micros();  // 現在の時刻を記録
-  tachoWidth = tachoAfter - tachoBefore;  // 前回と今回の時間の差(カムシャフト1回転当たりの時間 usec)を計算
-  tachoBefore = tachoAfter; // 今回の値を前回の値に代入する
-  if (Encoder){             // 磁気エンコーダが有効の場合
-    G_Pulse = true;           // カムパルス信号ON
-  } else {                  // 磁気エンコーダが無効の場合
-    Ne_deg = 0.0;             // クランク角を上死点にリセット
-    tachoRpm = (60000000.0 / tachoWidth) * 2;     //クランクの回転数[rpm]を計算
-    usecperdig = tachoWidth / 720.0;  // クランク1°当たりの時間(usec)
-    Cycle_Reset();            // エンジン運転のリセット処理
-  }
-}
-
-// クランク角の読み取り
-void ReadNe(void *pvParameters){
-  uint16_t _Ne_deg_raw = 0;
-  for (;;) {
-    TickType_t xLastWakeTime;
-    xLastWakeTime = xTaskGetTickCount();
-    Ne_deg_raw =  as5600.readAngle();               // 磁気エンコーダ生値(0-4095)を取得
-
-    Ne_deg = Ne_deg_raw * 0.087890625 + 360.0 * (now_Revolution % 2);   // 累積クランク角 = 0～359.99° + 360° * "周目"
-                                                                        // 偶数周では0, 奇数周では1を代入し、クランク角を0～720°の範囲に納める
-                                                                        // (リセット予約タイミングの遅れ対策)
-    tachoRpm = as5600.getAngularSpeed(AS5600_MODE_RPM);     // クランク回転数(rpm)
-    usecperdig = 1000.0 * 1000.0 / as5600.getAngularSpeed(AS5600_MODE_DEGREES);  // クランク1°当たりの時間(usec)
-
-    if (_Ne_deg_raw - Ne_deg_raw > 2048) {          // クランク上死点を通過したら
-      if (G_Pulse) {                                  // カムパルス信号ONなら、圧縮→膨張サイクル
-        now_Revolution++;                               // 現在の"周目"を更新
-        G_Pulse = false;                                // カムパルス信号をリセット
-        NeReset = true;                                 // クランク回転数リセット有効
-        goto label_goto;                                // 直後に排気→吸気サイクル判定しないようにgotoを使用
-      }
-      if (NeReset) {                                  // クランク回転数リセット有効なら、排気→吸気サイクル
-        now_Revolution = 0;                             // "0周目"にリセット  
-        NeReset = false;                                // クランク回転数リセット無効
-        Cycle_Reset();                                  // エンジン運転のリセット処理
-      }
-    }
-    label_goto:
-    _Ne_deg_raw = Ne_deg_raw;                         // 次回比較する磁気エンコーダ生値を記録
-    //Serial.println(Ne_deg);
-    vTaskDelayUntil(&xLastWakeTime, 1);               // 1msec停止
-  } 
-}
-
-// 点火MAPファイル読み込み
+// parseCSV()：SDカードからMAP読み込み（未使用の場合は空実装）
 void parseCSV() {
-  File file = SD.open(MAPFILE, FILE_READ);  // ファイルを開く
+  // SDカードMAP読み込み未実装の場合は何もしない
+}
 
-  String line;                // 行を一時的に記憶する変数
-  int row_inheader = 0;       // ヘッダーも含めた行数を記憶する変数
-  while (file.available()) {  // データが有ればループ
-    SDMAP = true;             // SDMAPを有効にする
-    char ch = file.read();    // データを1byteずつ読み取り
-    line += String(ch);       // 1byteずつ繋げていく
-    if (ch == '\n') {         // '\n'が読み込まれた所で一旦読み取りをやめる
-      Serial.print(line);     // 行全体を画面に表示
-      line.trim();            // 行に含まれる不要な空白を取り除く
+//-----------------------------------------------------------------------------
+// 割り込みルーチン
+//-----------------------------------------------------------------------------
 
-      int column = 0;         // 行に含まれる要素番号カウントする変数
-      int num_end = 0;        // 要素の終わりの列番号を記憶する変数
-      int num_start = 0;      // 要素の始まりの列番号を記憶する変数
+// WH_PULSE_ISR：車軸パルス割込み（速度・走行距離の更新）
+void IRAM_ATTR WH_PULSE_ISR() {
+  unsigned long now = micros();
+  speedWidth = now - speedBefore;
+  speed = (3600UL * PERIMETER_MM) / (speedWidth ? speedWidth : 1);
+  speedBefore = now;
+  distancemm += PERIMETER_MM;
+  distance = distancemm / 1000;
+}
 
-      if (0 < row_inheader) {       // ヘッダーを読み込まないように除外する
-        while (num_end != -1) {     // 範囲内に','がなくなるまで繰り返し
-          num_end = line.indexOf(',', num_start);       // num_strから','がないか確認。あれば列番号をnum_endに記憶
-          // Serial.print('[' + String(num_end) + ']'); // 正しく認識できているか確認用
-          String part = line.substring(num_start, num_end); // ','で区切られた要素を行から切り出す
-          // Serial.print('(' + part + ')');            // 正しく認識できているか確認用
-          if (column == 0) {          // 行の最初の要素
-            rpm1[row_inheader - 1] = part.toFloat(); // 配列の"ヘッダーを除いた行数"番目にデータをfloat型に変換して代入
-          } 
-          else if (column == 1) {     // 行の2番目の要素
-            inj1[row_inheader - 1] = part.toFloat(); // 配列の"ヘッダーを除いた行数"番目にデータをfloat型に変換して代入
-          } 
-          else if (column == 2) {     // 行の3番目の要素
-            ign1[row_inheader - 1] = part.toInt();   // 配列の"ヘッダーを除いた行数"番目にデータをint型に変換して代入
-          }
-          num_start = num_end + 1;    // ','分で1を足して、次の要素を区切る','を探し始めるスタート地点を代入
-          column++;                   // 要素数に1を加算
+// ReadNe_ISR：クランク角更新割込み（NE_B_INによる処理）
+void IRAM_ATTR ReadNe_ISR() {
+  if (!fastestdigitalRead(NE_B_IN))
+    Ne_deg += 1;
+  else
+    Ne_deg -= 1;
+
+  if (fastestdigitalRead(NE_Z_IN)) {
+    unsigned long now = micros();
+    tachoWidth = now - tachoBefore;
+    tachoBefore = now;
+    uint16_t _tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
+    if (_tachoRpm < 10000) {  // 10000 RPMを超える異常値は無視
+      tachoRpm = _tachoRpm;
+    }
+    if (Ne_deg > 360 && G_Pulse_Flag) {
+      Ne_deg = 0;
+      G_Pulse_Flag = false;
+      CycleReset = true;
+    }
+  }
+}
+
+// G_PULSE_ISR：カム角センサ割込み（G_IN）
+void IRAM_ATTR G_PULSE_ISR() {
+  if (!G_Pulse) {
+    G_Pulse = true;
+    G_Pulse_Flag = true;
+  }
+  // リリース状態は Routine 内で処理
+}
+
+//-----------------------------------------------------------------------------
+// MA735 SPIによる角度取得
+//-----------------------------------------------------------------------------
+int16_t readMA735SPI() {
+  static uint16_t last_rd = 0;
+  static unsigned long last_rd_time = 0;
+  SPI.beginTransaction(ma735Settings);
+  fastestdigitalWrite(MA735_CS, LOW);
+  uint16_t rd = SPI.transfer16(0);
+  fastestdigitalWrite(MA735_CS, HIGH);
+  SPI.endTransaction();
+
+  long diff = (long)rd - (long)last_rd;
+  if (diff < -32767) {
+    unsigned long now = micros();
+    Ne_rev++;
+    if (diff < 262)
+      tachoRpm = (uint16_t)(60000000.0 / (now - last_rd_time));
+    last_rd_time = now;
+    if (G_Pulse_Flag) {
+      Ne_rev = 0;
+      G_Pulse_Flag = false;
+      CycleReset = true;
+    }
+  } else if (diff > 32767) {
+    Ne_rev--;
+  }
+  last_rd = rd;
+  int16_t angle = (rd / 65535) * 360 + 360 * Ne_rev;
+  return angle;
+}
+
+//-----------------------------------------------------------------------------
+// エンジンMAP更新
+//-----------------------------------------------------------------------------
+void updateEngineMap() {
+  // スタータONの場合
+  if (startState == LOW) {
+    calculatedINJ_time = start_INJ_time;
+    calculatedIGN_CA   = start_IGN_CA;
+  }
+  // スタータOFFの場合
+  else {
+    if (SDMapEnabled) {
+      // SDカードMAP読み込みの場合（parseCSV()でロードしたデータを利用）
+      // ここでは未実装（必要なら実装）
+    } else {
+      for (uint8_t i = 0; i < defaultMapSize; i++) {
+        if (tachoRpm < defaultMap[i].rpm) {
+          calculatedINJ_time = defaultMap[i].inj_time;
+          calculatedIGN_CA   = defaultMap[i].ign_ca;
+          return;
         }
       }
-      line = "\0";    //変数を初期化
-      row_inheader++; //行数に1を加算
+      calculatedINJ_time = 0;
+      calculatedIGN_CA   = 0;
+      return;
     }
-    row = row_inheader - 1; //ヘッダーを除いた行数をrowに代入
-  }
-  file.close();                    //ファイルを閉じる
-}
-
-
-// 点火MAPファイルの表示
-void printData() {
-  for (uint8_t i = 0; i < row; i++) //整理したデータをタブで区切って表示
-  {
-    Serial.println(String(rpm1[i]) + '\t' + String(inj1[i]) + '\t' + String(ign1[i]));
   }
 }
 
-// ステータス出力
-void mainloop(void *pvParameters) {
-  for(;;){
-    TickType_t xLastWakeTime;
-    xLastWakeTime = xTaskGetTickCount();
+//-----------------------------------------------------------------------------
+// サイクルリセット
+//-----------------------------------------------------------------------------
+void cycleReset() {
+  updateEngineMap();
+  if (tachoRpm > TACHO_RPM_MAX) {
+    timeNow_INJ_ON  = 0;
+    timeNow_INJ_OFF = 0;
+  }
+  INJ_Status = 1;
+  IGN_Status = 1;
+  INJ_His = false;
+  IGN_His = false;
+  G_Pulse = false;
+  G_Pulse_Flag = false;
+}
 
-    if (fastestdigitalRead(RESET_IN) == LOW){          // リセットピン(7)がONの場合
-      fastestdigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-      Launch = false;                           // 走行開始OFF
-      Serialsend();                             // シリアル送信
-      delay(1000);
+//-----------------------------------------------------------------------------
+// Routine(): AGTimerより周期実行されるリアルタイム処理
+//-----------------------------------------------------------------------------
+void Routine() {
+  // スタートスイッチの状態を更新(OFF=HIGH, ON=LOW)
+  startState = fastestdigitalRead(STR_IN);
+
+  // A/Fセンサの更新
+  if (AFREnabled) {
+    updateAFR();
+  }
+  
+  // MA735 SPIセンサの更新
+  if (MA735SPIEnabled) {
+    Ne_deg = readMA735SPI();
+  }
+  
+  // クランク角センサを使用しない場合、回転数からクランク角を概算
+  if (!EncoderEnabled && !MA735SPIEnabled) {
+    if (usecperdig > 1e-3)
+      Ne_deg += (int16_t)(ROUTINE_CYCLE_US / usecperdig);
+  }
+  
+  // カム角センサのパルス処理
+  if (fastestdigitalRead(G_IN) == LOW) {
+    if (!G_Pulse) {
+      G_Pulse = true;
+      G_Pulse_Flag = true;
     }
-    if (Launch) {                               // 走行開始ONの場合
-      fastestdigitalWrite(DISRESET_OUT, LOW);     // リセット状態出力をONにする(リセット忘れ防止のため)
-      if (starttime == 0) {                       // 走行時間が0の場合
-        starttime = millis();                     // 走行開始時間を現在の時間にする
-      }
-      worktime = (millis() - starttime) * 0.001;  // 走行時間を秒に変換する
+  } else {
+    if (G_Pulse)
+      G_Pulse = false;
+  }
+  // サイクル同期が取れない場合のタイムアウト／再リセット機構(始動不良対策)
+  static unsigned long lastZMicros = 0;
+  if (G_Pulse_Flag) {
+    lastZMicros = micros();
+  }
+  // カムパルスが来ずに一定時間経過したら、自動的に cycleReset() を繰り返し呼び出す
+  if (micros() - lastZMicros > 50000UL) {
+    cycleReset();
+    lastZMicros = micros();
+  }
+  
+  // エンジン燃焼サイクルのリセット
+  if (CycleReset) {
+    cycleReset();
+    CycleReset = false;
+  }
+
+  // スタートスイッチの状態がOFF->ONに変化した場合
+  if (lastStartState == HIGH && startState == LOW) {
+    // delayMicroseconds(5000);       // 5ms待機してから状態を確認
+    if (fastestdigitalRead(STR_IN) == LOW) {  // スタートスイッチがONの場合
+      // 同期データ初期化
+      // Ne_deg = 0;
+      cycleReset();
     }
-    else {
-      fastestdigitalWrite(DISRESET_OUT, HIGH);  // リセット状態出力をOFFにする
-      worktime = 0;                               // 走行時間を0にする
-      starttime = 0;                              // 走行開始時間を0にする
-      distancemm = 0;                             // 走行距離を0にする
-      distance = 0;                               // 走行距離を0にする
-      gasml = 0.0;                                // 積算燃料消費量を0にする
+  }
+  lastStartState = startState;
+  
+  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
+    if (Ne_deg >= INJ_STR_CA) {
+      timeNow_INJ_ON = micros();
+      INJ_His = true;
+      fastestdigitalWrite(INJ_OUT, LOW);
+      INJ_Status = 2;
     }
+  }
+  
+  if (INJ_Status == 2) {
+    unsigned long injDuration = calculatedINJ_time * 100UL;
+    if (Increase_Fuel) {
+      // AFRによる補正（実装必要なら）
+    }
+    if (micros() - timeNow_INJ_ON >= injDuration) {
+      timeNow_INJ_OFF = micros();
+      fastestdigitalWrite(INJ_OUT, HIGH);
+      INJ_Status = 1;
+      gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
+    }
+  }
+  
+  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
+    if (Ne_deg >= (360 - calculatedIGN_CA)) {
+      timeNow_IGN_ON = micros();
+      IGN_His = true;
+      fastestdigitalWrite(IGN_OUT, LOW);
+      IGN_Status = 2;
+    }
+  }
 
-    INJ_timems = INJ_time * 0.1;          // 燃料噴射時間をmsecに変換
-    dispergas = distance  / gasml;        // 燃費(m/ml = km/l)を計算
+  if (IGN_Status == 2) {
+    if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
+      timeNow_IGN_OFF = micros();
+      fastestdigitalWrite(IGN_OUT, HIGH);
+      IGN_Status = 1;
+    }
+  }
+  
+  // キルスイッチの状態を確認
+  if (fastestdigitalRead(ENGOFF_IN) == LOW) {   // キルスイッチがONの場合（運転状態）
+    if (startState == LOW) {                      // スタートボタンON場合
+      STR_IN_state = true;
+      fastestdigitalWrite(STR_OUT, LOW);
+      Launch = true;
+      ENG_ON = true;
+      if (starttime == 0)
+        starttime = millis();
+    } else {
+      STR_IN_state = false;
+      fastestdigitalWrite(STR_OUT, HIGH);
+    }    
+  }
+  else {                                      // キルスイッチがOFFの場合（停止状態）
+    ENG_ON = false;
+  }
+}
 
-    // シリアル送信
-    Serialsend();
-
-    if (micros() - tachoBefore >= 1200 * 1000 ) {  // 50rpm以下(前回のカムパルスONから1.2sec以上経過)の場合
+//-----------------------------------------------------------------------------
+// statusTask(): 500ms間隔でシステム状態を出力
+//-----------------------------------------------------------------------------
+void statusTask(void *pvParameters) {
+  (void)pvParameters;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  
+  for (;;) {
+    if (Launch) {
+      fastestdigitalWrite(DISRESET_OUT, LOW);
+      worktime = (millis() - starttime) / 1000;
+    } else {
+      fastestdigitalWrite(DISRESET_OUT, HIGH);
+      worktime = 0;
+      starttime = 0;
+      distancemm = 0;
+      distance = 0;
+      gasml = 0.0;
+    }
+    INJ_timems = calculatedINJ_time * 0.1;
+    if (gasml > 0.0)
+      dispergas = (float)distance / gasml;
+    else
+      dispergas = 0.0;
+    
+    if (SerialUSBEnabled) {
+      Serial.print(tachoRpm);
+      Serial.print("\t");
+      Serial.print(INJ_timems, 1);
+      Serial.print("\t");
+      Serial.print(calculatedIGN_CA);
+      Serial.print("\t");
+      Serial.print(speed);
+      Serial.print("\t");
+      Serial.print(distance);
+      Serial.print("\t");
+      Serial.print(gasml, 1);
+      Serial.print("\t");
+      Serial.print(dispergas, 1);
+      Serial.print("\t");
+      Serial.print(worktime);
+      Serial.print("\t");
+      Serial.print(Ne_deg);
+      Serial.println();
+    }
+    
+    if (Serial1Enabled) {
+      Serial1.print(tachoRpm);
+      Serial1.print(",");
+      Serial1.print(INJ_timems, 1);
+      Serial1.print(",");
+      Serial1.print(calculatedIGN_CA);
+      Serial1.print(",");
+      Serial1.print(speed);
+      Serial1.print(",");
+      Serial1.print(distance);
+      Serial1.print(",");
+      Serial1.print(gasml, 1);
+      Serial1.print(",");
+      Serial1.print(dispergas, 1);
+      Serial1.print(",");
+      Serial1.print(worktime);
+      Serial1.println();
+    }
+    
+    if (micros() - tachoBefore >= 1200000UL) {
       tachoRpm = 0;
-      usecperdig = 0.0;
-      INJ_time = 0.0;
-      IGN_CA = 0;
+      usecperdig = 1.0;
+      calculatedINJ_time = 0;
+      calculatedIGN_CA = 0;
     }
-
-    if (micros() - speedBefore > 3600 * perimeter){speed = 0;}  // 速度1km/h以下の時は速度を0にする 
-
-    vTaskDelayUntil(&xLastWakeTime, 500);                  // 500ms停止
+    if (micros() - speedBefore > (3600UL * PERIMETER_MM)) {
+      speed = 0;
+    }
+    
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(STATUS_TASK_DELAY_MS));
   }
 }
 
+//-----------------------------------------------------------------------------
+// setup()
+//-----------------------------------------------------------------------------
 void setup() {
-  Serial.begin(115200);  // シリアル通信を開始
-  Serial1.begin(115200);  // シリアル通信を開始
-
-  Wire.begin();
-  Wire.setClock(400000); // 400kHz I2C clock.
-
-  pinMode(HW_IN, INPUT_PULLUP);
+  Serial.begin(115200);
+  Serial1.begin(115200);
+  
+  pinMode(WH_IN, INPUT_PULLUP);
   pinMode(G_IN, INPUT_PULLUP);
   pinMode(STR_IN, INPUT_PULLUP);
   pinMode(ENGOFF_IN, INPUT_PULLUP);
-  pinMode(RESET_IN, INPUT_PULLUP);
-  pinMode(SD_IN, INPUT_PULLUP);
+  pinMode(NE_A_IN, INPUT_PULLUP);
+  pinMode(NE_B_IN, INPUT_PULLUP);
+  pinMode(NE_Z_IN, INPUT_PULLUP);
   pinMode(INJ_OUT, OUTPUT);
   pinMode(IGN_OUT, OUTPUT);
   pinMode(STR_OUT, OUTPUT);
   pinMode(DISRESET_OUT, OUTPUT);
-
-  // 出力オフ
+  
   digitalWrite(INJ_OUT, HIGH);
   digitalWrite(IGN_OUT, HIGH);
   digitalWrite(STR_OUT, HIGH);
   digitalWrite(DISRESET_OUT, HIGH);
-
-  /*
+  
+  digitalWrite(DISRESET_OUT, LOW);
   delay(100);
-  digitalWrite(INJ_OUT, LOW);   // インジェクタON
-  delay(100);
-  digitalWrite(INJ_OUT, HIGH);  // インジェクタOFF
-  digitalWrite(IGN_OUT, LOW);   // イグニッションON
-  delay(100);
-  digitalWrite(IGN_OUT, HIGH);  // イグニッションOFF
-  digitalWrite(STR_OUT, LOW);   // スタータON
-  delay(100);
-  digitalWrite(STR_OUT, HIGH);  // スタータOFF
-  */
-  digitalWrite(DISRESET_OUT, LOW);    // DISRESET_OUT ON
-
-  if (fastestdigitalRead(SD_IN) == LOW){  // microSDが挿入されているとき
+  digitalWrite(DISRESET_OUT, HIGH);
+  
+#ifdef rmc_ra4m1_20
+  if (SD.begin(2000000UL, CS)) {
     delay(100);
-    digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
-
-    Serial.print(F("Initializing SD card..."));
-    pinMode(chipSelect, OUTPUT);
-   
-    if (!SD.begin(chipSelect)) {
-      Serial.println(F("initialization failed!"));
-      //while (1);
-    }
-    Serial.println(F("initialization done."));
-
-    // CSVファイルを読み込んで配列に代入する
+    digitalWrite(DISRESET_OUT, HIGH);
+    Serial.println(F("SD card initialized."));
     parseCSV();
-  
-    // データを表示して確認する
-    //printData();
-
-  }
-  else {
+  } else {
     delay(100);
-    digitalWrite(DISRESET_OUT, HIGH);  // DISRESET_OUT OFF
-    Serial.println(F("Don't use SD card"));
+    digitalWrite(DISRESET_OUT, HIGH);
+    Serial.println(F("SD card not used."));
   }
-
-  // OLEDの接続確認
-  Wire.beginTransmission(0x3C);
-  if (Wire.endTransmission() == 0) {
-    OLED = true;
-  }
-
-  if(OLED) {  // OLEDが接続されていれば
-    u8x8.begin();
-    u8x8.setPowerSave(0);
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
-    //u8x8.setFont(u8x8_font_profont29_2x3_r);
-    u8x8.setInverseFont(1);
-    u8x8.drawString(0, 0, "RPM");
-    u8x8.drawString(0, 1, "INJ");
-    u8x8.drawString(8, 1, "IGN");
-    u8x8.drawString(0, 2, "SPD");
-    u8x8.drawString(8, 2, "DIS");
-    u8x8.drawString(0, 3, "GAS");
-    u8x8.drawString(8, 3, "km/l");
-    u8x8.setInverseFont(0);
-  }
-
-  // AS5600磁気エンコーダの接続確認
-  as5600.begin();
-  //as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  // エンコーダの回転方向を反時計回りに設定 ※DIRピンをGNDに落とす
-  as5600.setOffset(Ne_offset);                    // クランク角のオフセットを設定
-  //Serial.print(as5600.isConnected());
-  //Serial.print(as5600.detectMagnet());
-  //Serial.print(as5600.magnetTooWeak());
-  //Serial.println(as5600.magnetTooStrong());
-  Encoder = as5600.isConnected()                  // AS5600を認識している
-            && as5600.detectMagnet();             // 磁石を検知している
-            // && !as5600.magnetTooWeak()         // 磁力が弱すぎない
-            // && !as5600.magnetTooStrong();      // 磁力が強すぎない
-  if (Encoder) {
-    // 磁気エンコーダのタスク
-    xTaskCreate(
-      ReadNe,             // タスク関数
-      "ReadNe",           // タスクの名前
-      128,                // タスクのスタックサイズ
-      NULL,               // タスク関数に渡す引数
-      3,                  // タスクの優先度
-      &UpdateReadNeHandle // タスクハンドル
-    );
-
-    as5600.resetPosition();                       // クランク回転数(周目)を初期化
-  }
-  else {
-    Serial.println(F("Don't use AS5600"));
-  }
-  //Wire.end();
+#endif
   
-  attachInterrupt(digitalPinToInterrupt(HW_IN), HW_PULSE,   FALLING);   // 外部割り込み（HW_IN）
-  if (Encoder) {                                                      // エンコーダ有効の場合
-    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, RISING);  // OFFタイミングで外部割り込み（G_IN）
+  if (MA735SPIEnabled) {
+    SPI.begin();
+    pinMode(MA735_CS, OUTPUT);
+    digitalWrite(MA735_CS, HIGH);
+    Ne_deg = readMA735SPI();
   }
-  else {
-    attachInterrupt(digitalPinToInterrupt(G_IN),  tachometer, FALLING); // ONタイミングで外部割り込み（G_IN）
+  
+  if (AFREnabled) {
+    // AFR初期化
   }
-
-
-  AGTimer.init(Routine_Cycle, Routine);  // 24use周期で燃料噴射・点火制御を実行
+  
+  if (EncoderEnabled) {
+    attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe_ISR, RISING);
+  }
+  attachInterrupt(digitalPinToInterrupt(WH_IN), WH_PULSE_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(G_IN), G_PULSE_ISR, CHANGE);
+  
+  AGTimer.init(ROUTINE_CYCLE_US, Routine);
   AGTimer.start();
-
-  // ステータス出力のタスク
-  xTaskCreate(
-    mainloop,           // タスク関数
-    "mainloop",         // タスクの名前
-    128,                // タスクのスタックサイズ
-    NULL,               // タスク関数に渡す引数
-    2,                  // タスクの優先度
-    &UpdatemainloopHandle // タスクハンドル
-  );
-  // タスク実行
+  
+  xTaskCreate(statusTask, "StatusTask", 128, NULL, 2, NULL);
+  
   vTaskStartScheduler();
 }
 
 void loop() {
- delay(1);
+  delay(1);
 }
