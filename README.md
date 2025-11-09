@@ -136,10 +136,10 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
   - AFR 補正: A/Fセンサによる燃料噴射量補正のため、`Increase_Fuel` 分岐位置あり（未実装）
   - 将来: `INJ_STR_CA` 列追加予定 (現状 0 固定)。
 
-
 ## 高速GPIO
 
 [`fastestdigitalRW.hpp`](src/fastestdigitalRW.hpp):
+
 - AVR: `sbi/cbi` 直接制御
 - UNO R4 (RA4M1): レジスタ `R_PORTx->PODR_b`
 - その他: フォールバック `digitalWrite/digitalRead`
@@ -160,7 +160,7 @@ AGTimer: [`AGTimer.init(period_us, callback)`](lib/AGTimer_R4_Library/src/AGTime
 ## ログ / 出力
 
 USB シリアル (タブ区切り) / `Serial1` (CSV)。  
-出力フィールド: RPM, INJ(ms), IGN_CA, speed, distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
+出力フィールド: RPM, INJ(ms), IGN_CA, speed(km/h, 0.1分解能), distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
 
 ## 拡張アイデア (TODO)
 
@@ -189,6 +189,7 @@ USB シリアル (タブ区切り) / `Serial1` (CSV)。
 ## 安全上の注意
 
 実車/燃焼系制御へ適用する際は下記を検討:
+
 - ウォッチドッグ / フェールセーフ / 過回転保護など追加必須
 - 電源ノイズ対策 (車載 12V → 5V/3.3V 安定化)
 - I/O レベルと駆動回路(インジェクタ / イグナイタ)の絶縁

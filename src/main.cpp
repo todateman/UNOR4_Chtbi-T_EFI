@@ -66,7 +66,7 @@ volatile unsigned long speedAfter   = 0;  // WH_INの立ち下がりで更新
 volatile unsigned long speedWidth   = 0;  // WH_INのパルス幅
 volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
-volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
+volatile unsigned long speed        = 0;  // WH_INの速度（0.1 km/h 単位）0.0～99.9km/h→内部0～999
 
 bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
@@ -160,7 +160,12 @@ void parseCSV() {
 void IRAM_ATTR WH_PULSE_ISR() {
   unsigned long now = micros();
   speedWidth = now - speedBefore;
-  speed = (3600UL * PERIMETER_MM) / (speedWidth ? speedWidth : 1);
+  // 速度計算: km/h = (3600 * 周長(mm)) / パルス間隔(µs) / 1000(mm→m) / 1000(m→km)
+  // 0.1km/h分解能にするため10倍 → (36000 * PERIMETER_MM) / dt
+  unsigned long dt = (speedWidth ? speedWidth : 1);
+  unsigned long calc = (36000UL * PERIMETER_MM) / dt; // 0.1km/h単位
+  if (calc > 999) calc = 999; // 上限 99.9km/h
+  speed = calc;
   speedBefore = now;
   distancemm += PERIMETER_MM;
   distance = distancemm / 1000;
@@ -427,7 +432,7 @@ void statusTask(void *pvParameters) {
       Serial.print("\t");
       Serial.print(calculatedIGN_CA);
       Serial.print("\t");
-      Serial.print(speed);
+      Serial.print(speed / 10.0f, 1); // 0.1km/h表示
       Serial.print("\t");
       Serial.print(distance);
       Serial.print("\t");
@@ -448,7 +453,7 @@ void statusTask(void *pvParameters) {
       Serial1.print(",");
       Serial1.print(calculatedIGN_CA);
       Serial1.print(",");
-      Serial1.print(speed);
+      Serial1.print(speed / 10.0f, 1); // 0.1km/h表示
       Serial1.print(",");
       Serial1.print(distance);
       Serial1.print(",");
@@ -466,7 +471,8 @@ void statusTask(void *pvParameters) {
       calculatedINJ_time = 0;
       calculatedIGN_CA = 0;
     }
-    if (micros() - speedBefore > (3600UL * PERIMETER_MM)) {
+    // 無信号による速度ゼロ化判定: 1.0km/h相当の最大間隔を 0.1km/h 分解能計算へ合わせて10倍
+    if (micros() - speedBefore > (36000UL * PERIMETER_MM)) {
       speed = 0;
     }
     
