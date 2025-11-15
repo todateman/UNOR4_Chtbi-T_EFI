@@ -160,7 +160,7 @@ AGTimer: [`AGTimer.init(period_us, callback)`](lib/AGTimer_R4_Library/src/AGTime
 ## ログ / 出力
 
 USB シリアル (タブ区切り) / `Serial1` (CSV)。  
-出力フィールド: RPM, INJ(ms), IGN_CA, speed(km/h, 0.1分解能), distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
+出力フィールド: RPM, INJ(ms), IGN_CA, speed(km/h, 0.1分解能・停止時は最終パルス経過で減衰→約8sで0.0), distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
 
 ## 拡張アイデア (TODO)
 

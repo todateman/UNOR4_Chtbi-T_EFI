@@ -67,6 +67,8 @@ volatile unsigned long speedWidth   = 0;  // WH_INのパルス幅
 volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（0.1 km/h 単位）0.0～99.9km/h→内部0～999
+// 注意: パルスが止まると最後の1回転周期で算出した速度が保持されるため下限値(例:1.4km/h)から0へ落ちない。
+// `statusTask` 内で最終パルスからの経過時間を使った減衰再計算を行い停車時に 0.0 へ近づける。
 
 bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
@@ -425,6 +427,16 @@ void statusTask(void *pvParameters) {
     else
       dispergas = 0.0;
     
+    // 停止減衰: 最後のパルスから時間が経つほど再計算速度を小さくする (1回転未満で停止した場合の見かけ速度低下)
+    unsigned long age = micros() - speedBefore; // 最終パルスからの経過(us)
+    if (age > speedWidth && speedWidth > 0) {   // 新しいパルスが来ていない区間
+      unsigned long decay = (36000UL * PERIMETER_MM) / age; // 0.1km/h単位
+      if (decay < speed) {
+        if (decay > 999) decay = 999;
+        speed = decay < 1 ? 0 : decay; // 0.0未満は 0.0 とする
+      }
+    }
+
     if (SerialUSBEnabled) {
       Serial.print(tachoRpm);
       Serial.print("\t");
@@ -471,8 +483,8 @@ void statusTask(void *pvParameters) {
       calculatedINJ_time = 0;
       calculatedIGN_CA = 0;
     }
-    // 無信号による速度ゼロ化判定: 1.0km/h相当の最大間隔を 0.1km/h 分解能計算へ合わせて10倍
-    if (micros() - speedBefore > (36000UL * PERIMETER_MM)) {
+    // 無信号ゼロ化: 減衰後さらに 8 秒相当以上経過で強制 0 (約 8s = 8,000,000us)
+    if (micros() - speedBefore > 8000000UL) {
       speed = 0;
     }
     
