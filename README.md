@@ -21,6 +21,7 @@ Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用EC
 - [platformio.ini](platformio.ini) : ビルド環境定義
 - microSD/ : 走行ログや MAP 用 CSV（将来拡張）
 - log/ : 記録例
+- [document/arduino-workflow.puml](document/arduino-workflow.puml) : PlantUML ワークフロー図（詳細版）
 
 ## 対応ボード / ビルド
 
@@ -161,6 +162,25 @@ AGTimer: [`AGTimer.init(period_us, callback)`](lib/AGTimer_R4_Library/src/AGTime
 
 USB シリアル (タブ区切り) / `Serial1` (CSV)。  
 出力フィールド: RPM, INJ(ms), IGN_CA, speed(km/h, 0.1分解能・停止時は最終パルス経過で減衰→約8sで0.0), distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
+
+## PlantUML 図の参照
+
+- 図ファイル: `document/Arduino_ECU_Workflow.puml`  
+- VS Code でのプレビュー: PlantUML 拡張(例: `jebbs.plantuml`)を使用して開く。  
+- コマンド例 (Windows PowerShell):
+
+```powershell
+java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.jar" -tsvg document/Arduino_ECU_Workflow.puml
+```
+
+- 図に含まれる主な数値注記:
+  - ROUTINE_CYCLE_US = 24µs
+  - PERIMETER_MM = 1548mm
+  - 速度上限 99.9km/h (内部999)
+  - カム同期タイムアウト ≈ 50ms
+  - RPMゼロ化 ≈ 1.2s無信号
+  - 速度強制ゼロ ≈ 8s無信号
+  - 点火保持 5ms
 
 ## 拡張アイデア (TODO)
 
