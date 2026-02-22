@@ -15,6 +15,7 @@
 //-----------------------------------------------------------------------------
 void IRAM_ATTR WH_PULSE_ISR();
 void IRAM_ATTR ReadNe_ISR();
+void IRAM_ATTR NE_Z_RISE_ISR();
 void IRAM_ATTR G_PULSE_ISR();
 
 //-----------------------------------------------------------------------------
@@ -23,6 +24,11 @@ void IRAM_ATTR G_PULSE_ISR();
 
 #define ROUTINE_CYCLE_US     24
 #define STATUS_TASK_DELAY_MS 500
+
+// 燃料噴射量計算定数（インジェクタキャリブレーション）
+#define INJ_FLOW_ML_PER_US   0.0000007f  // インジェクタ流量（ml/µs）
+#define INJ_DEAD_TIME_ML     0.0015f     // インジェクタ不感時間相当燃料量（ml/cycle）
+#define INJ_FUEL_DENSITY     1.5073f     // 燃料密度補正係数
 
 #define PERIMETER_MM         1548UL   // [mm]
 #define TACHO_RPM_MAX        6000
@@ -68,7 +74,7 @@ volatile unsigned long distancemm   = 0;  // WH_INの走行距離（mm）
 volatile uint16_t      distance     = 0;  // WH_INの走行距離（km）
 volatile unsigned long speed        = 0;  // WH_INの速度（km/h）
 
-bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
+volatile bool ENG_ON                 = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
@@ -100,6 +106,9 @@ unsigned long starttime    = 0;           // エンジン始動時間（ms）
 volatile uint16_t worktime = 0;           // エンジン稼働時間（秒）
 
 volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時間（us）
+
+volatile unsigned long injTotalUs   = 0;  // 燃料噴射累積時間（us）
+volatile uint32_t      injCycleCount = 0; // 燃料噴射サイクル数
 
 //-----------------------------------------------------------------------------
 // MAPテーブル（SD未使用の場合のデフォルトMAP）
@@ -166,36 +175,64 @@ void IRAM_ATTR WH_PULSE_ISR() {
   distance = distancemm / 1000;
 }
 
-// ReadNe_ISR：クランク角更新割込み（NE_B_INによる処理）
+// ReadNe_ISR：クランク角更新割込み（NE_A_INの立ち上がりで1度カウント）
 void IRAM_ATTR ReadNe_ISR() {
   if (!fastestdigitalRead(NE_B_IN))
     Ne_deg += 1;
   else
     Ne_deg -= 1;
 
-  if (fastestdigitalRead(NE_Z_IN)) {
-    unsigned long now = micros();
-    tachoWidth = now - tachoBefore;
-    tachoBefore = now;
-    uint16_t _tachoRpm = (uint16_t)(60000000.0 / tachoWidth);
-    if (_tachoRpm < 10000) {  // 10000 RPMを超える異常値は無視
-      tachoRpm = _tachoRpm;
+  // 点火タイミングトリガー（クランク角ベース・度単位精度）
+  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
+    if (Ne_deg >= (360 - calculatedIGN_CA)) {
+      timeNow_IGN_ON = micros();
+      IGN_His = true;
+      fastestdigitalWrite(IGN_OUT, LOW);
+      IGN_Status = 2;
     }
-    if (Ne_deg > 360 && G_Pulse_Flag) {
-      Ne_deg = 0;
-      G_Pulse_Flag = false;
-      CycleReset = true;
+  }
+
+  // 燃料噴射タイミングトリガー（クランク角ベース・度単位精度）
+  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
+    if (Ne_deg >= INJ_STR_CA) {
+      timeNow_INJ_ON = micros();
+      INJ_His = true;
+      fastestdigitalWrite(INJ_OUT, LOW);
+      INJ_Status = 2;
     }
   }
 }
 
-// G_PULSE_ISR：カム角センサ割込み（G_IN）
-void IRAM_ATTR G_PULSE_ISR() {
-  if (!G_Pulse) {
-    G_Pulse = true;
-    G_Pulse_Flag = true;
+// NE_Z_RISE_ISR：クランク角エンコーダZパルス割込み（回転数・角度基準の更新）
+void IRAM_ATTR NE_Z_RISE_ISR() {
+  unsigned long now = micros();
+  tachoWidth = now - tachoBefore;
+  tachoBefore = now;
+  if (tachoWidth > 0) {
+    uint16_t _tachoRpm = (uint16_t)(60000000UL / tachoWidth);
+    if (_tachoRpm < 10000) {
+      tachoRpm = _tachoRpm;
+    }
   }
-  // リリース状態は Routine 内で処理
+  if (Ne_deg > 360 && G_Pulse_Flag) {
+    Ne_deg = 0;
+    G_Pulse_Flag = false;
+    CycleReset = true;
+  }
+}
+
+// G_PULSE_ISR：カム角センサ割込み（G_IN CHANGE）
+// CHANGE割込みでピン状態を読み取るため、読み取りタイミングとエッジ間の競合は
+// カム信号の変化速度に対して十分小さく実用上問題ない
+void IRAM_ATTR G_PULSE_ISR() {
+  if (fastestdigitalRead(G_IN) == LOW) {  // 立ち下がり（アクティブ）
+    if (!G_Pulse) {
+      G_Pulse = true;
+      G_Pulse_Flag = true;
+    }
+  } else {                                // 立ち上がり（リリース）
+    G_Pulse = false;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -299,16 +336,6 @@ void Routine() {
       Ne_deg += (int16_t)(ROUTINE_CYCLE_US / usecperdig);
   }
   
-  // カム角センサのパルス処理
-  if (fastestdigitalRead(G_IN) == LOW) {
-    if (!G_Pulse) {
-      G_Pulse = true;
-      G_Pulse_Flag = true;
-    }
-  } else {
-    if (G_Pulse)
-      G_Pulse = false;
-  }
   // サイクル同期が取れない場合のタイムアウト／再リセット機構(始動不良対策)
   static unsigned long lastZMicros = 0;
   if (G_Pulse_Flag) {
@@ -328,24 +355,13 @@ void Routine() {
 
   // スタートスイッチの状態がOFF->ONに変化した場合
   if (lastStartState == HIGH && startState == LOW) {
-    // delayMicroseconds(5000);       // 5ms待機してから状態を確認
-    if (fastestdigitalRead(STR_IN) == LOW) {  // スタートスイッチがONの場合
-      // 同期データ初期化
-      // Ne_deg = 0;
+    if (fastestdigitalRead(STR_IN) == LOW) {
       cycleReset();
     }
   }
   lastStartState = startState;
   
-  if (ENG_ON && INJ_Status == 1 && !INJ_His) {
-    if (Ne_deg >= INJ_STR_CA) {
-      timeNow_INJ_ON = micros();
-      INJ_His = true;
-      fastestdigitalWrite(INJ_OUT, LOW);
-      INJ_Status = 2;
-    }
-  }
-  
+  // 燃料噴射終了タイミング管理
   if (INJ_Status == 2) {
     unsigned long injDuration = calculatedINJ_time * 100UL;
     if (Increase_Fuel) {
@@ -355,19 +371,12 @@ void Routine() {
       timeNow_INJ_OFF = micros();
       fastestdigitalWrite(INJ_OUT, HIGH);
       INJ_Status = 1;
-      gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
+      injTotalUs += (timeNow_INJ_OFF - timeNow_INJ_ON);
+      injCycleCount++;
     }
   }
   
-  if (ENG_ON && IGN_Status == 1 && !IGN_His) {
-    if (Ne_deg >= (360 - calculatedIGN_CA)) {
-      timeNow_IGN_ON = micros();
-      IGN_His = true;
-      fastestdigitalWrite(IGN_OUT, LOW);
-      IGN_Status = 2;
-    }
-  }
-
+  // 点火保持終了タイミング管理
   if (IGN_Status == 2) {
     if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
       timeNow_IGN_OFF = micros();
@@ -413,8 +422,11 @@ void statusTask(void *pvParameters) {
       distancemm = 0;
       distance = 0;
       gasml = 0.0;
+      injTotalUs = 0;
+      injCycleCount = 0;
     }
     INJ_timems = calculatedINJ_time * 0.1;
+    gasml = (injTotalUs * INJ_FLOW_ML_PER_US + injCycleCount * INJ_DEAD_TIME_ML) / INJ_FUEL_DENSITY;
     if (gasml > 0.0)
       dispergas = (float)distance / gasml;
     else
@@ -528,6 +540,7 @@ void setup() {
   
   if (EncoderEnabled) {
     attachInterrupt(digitalPinToInterrupt(NE_A_IN), ReadNe_ISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(NE_Z_IN), NE_Z_RISE_ISR, RISING);
   }
   attachInterrupt(digitalPinToInterrupt(WH_IN), WH_PULSE_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(G_IN), G_PULSE_ISR, CHANGE);
