@@ -8,8 +8,9 @@ Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用EC
   - (AGTimerライブラリ [`AGTimer.init`](lib/AGTimer_R4_Library/src/AGTimerR4.h) による24usec毎処理)
 - 割り込み:
   - 車速入力: [`WH_PULSE_ISR`](src/main.cpp)
-  - クランク角 A: Arduino attachInterrupt + `ReadNe_ISR`（パルスでクランク角更新）
-  - カム角: [`G_PULSE_ISR`](src/main.cpp)
+  - クランク角 A (RISING): [`ReadNe_ISR`](src/main.cpp)（`Ne_deg` 更新 + ISRベース点火/噴射トリガー）
+  - クランク角 Z (RISING): [`NE_Z_RISE_ISR`](src/main.cpp)（回転数計算 + サイクルリセット）
+  - カム角 (CHANGE): [`G_PULSE_ISR`](src/main.cpp)（立ち上がり/立ち下がりをISR内で処理）
 - 高速 GPIO: [`fastestdigitalWrite` / `fastestdigitalRead`](src/fastestdigitalRW.hpp)
 - フリータスク: FreeRTOS で 500ms 周期 [`statusTask`](src/main.cpp)
 
@@ -76,43 +77,46 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
 
 ## 処理フロー概要
 
-1. 割り込みで角度/速度更新  
-   - `ReadNe_ISR`: NE_A パルスで `Ne_deg` ±1 更新（NE_Bの位相参照）  
-   - `G_PULSE_ISR`: カムパルス同期フラグ設定  
+1. 割り込みで角度/速度更新
+   - `ReadNe_ISR`: NE_A (RISING) パルスで `Ne_deg` ±1 更新（NE_B位相参照）
+     → **ISRベースで点火・噴射トリガー**: `Ne_deg >= (360 - calculatedIGN_CA)` で点火 LOW、`Ne_deg >= INJ_STR_CA` で噴射 LOW
+   - `NE_Z_RISE_ISR`: NE_Z (RISING) パルスで回転数計算 (`tachoRpm = 60,000,000 / tachoWidth`) + サイクルリセット
+   - `G_PULSE_ISR`: カム角 (CHANGE) 割り込み。立ち下がりで `G_Pulse/G_Pulse_Flag` セット、立ち上がりで `G_Pulse` クリア（Routine処理不要）
 
-   - 角度モデルと usecperdig
-     - `usecperdig` は NE_A パルス間隔 (µs/deg) をクランク割り込み [`ReadNe_ISR`](src/main.cpp) 内で直接測定し更新。  
-     - MA735 使用時は `usecperdig` を補間に使わない（`Ne_deg` を直接取得）。  
-     - 推定補間時: `Ne_deg += ROUTINE_CYCLE_US / usecperdig` (エンコーダ無効かつ MA735無効時)。
-
-     - 簡易平滑: 移動平均 (3:1)
-
-       ```text
-       usecperdig = (prev*3 + dt) / 4
-       ```
-
-     - 異常除外: `dt == 0` や 過大 (例 > 100000µs) は無視。
+   - 角度補間モデル (`EncoderEnabled=false` かつ `MA735SPIEnabled=false` 時のみ)
+     - `usecperdig` は初期値 1.0 固定（現状は動的更新未実装）
+     - 推定: `Ne_deg += ROUTINE_CYCLE_US / usecperdig`
+     - MA735 使用時は `Ne_deg` を直接取得。
 
 2. 周期関数 [`Routine`](src/main.cpp):
    - スタート/キル状態評価
-   - カム同期タイムアウト→`cycleReset`
-   - マップ更新: [`updateEngineMap`](src/main.cpp)
-   - 噴射開始条件 (角度 >= `INJ_STR_CA`)
-   - 噴射時間経過で OFF & 燃料量積算
-   - 点火進角計算 & 保持時間後 OFF
+   - カム同期タイムアウト→`cycleReset` (50ms監視)
+   - 噴射終了タイミング管理 (`INJ_Status==2` で噴射時間経過を確認し HIGH 戻し・積算)
+   - 点火保持終了タイミング管理 (`IGN_Status==2` で `IGNITION_HOLD_US` 経過後 HIGH 戻し)
+   - ※ 点火/噴射の**開始トリガー**は `ReadNe_ISR` (ISR) で行い、Routine は**終了管理のみ**
 
 3. 500ms タスク [`statusTask`](src/main.cpp):
-   - 状態計算 (燃費, 稼働時間)
+   - 状態計算 (燃費, 稼働時間, `gasml` 再計算)
    - シリアル出力 (タブ/CSV)
 
 ## 燃料噴射計算
 
-噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`  
-燃料量近似:
+噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`
+
+Routine() で噴射終了時に `injTotalUs`（累積噴射時間 µs）と `injCycleCount`（噴射回数）を積算。
+`statusTask` (500ms) で燃料消費量を再計算:
 
 ```text
-gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
+gasml = (injTotalUs * INJ_FLOW_ML_PER_US + injCycleCount * INJ_DEAD_TIME_ML) / INJ_FUEL_DENSITY
 ```
+
+定数（`#define` で定義）:
+
+| 定数 | 値 | 説明 |
+|------|----|------|
+| `INJ_FLOW_ML_PER_US` | 0.0000007 | インジェクタ流量 (ml/µs) |
+| `INJ_DEAD_TIME_ML` | 0.0015 | 不感時間相当燃料量 (ml/cycle) |
+| `INJ_FUEL_DENSITY` | 1.5073 | 燃料密度補正係数 |
 
 係数は実測燃費から逆算したインジェクタ流量補正。
 
@@ -160,7 +164,7 @@ AGTimer: [`AGTimer.init(period_us, callback)`](lib/AGTimer_R4_Library/src/AGTime
 
 ## ログ / 出力
 
-USB シリアル (タブ区切り) / `Serial1` (CSV)。  
+USB シリアル (タブ区切り) / `Serial1` (CSV)。
 出力フィールド: RPM, INJ(ms), IGN_CA, speed(km/h, 0.1分解能・停止時は最終パルス経過で減衰→約8sで0.0), distance(km), fuel(ml), km/L, worktime(s), Ne_deg。
 
 ## PlantUML 図の参照
@@ -176,11 +180,12 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 - 図に含まれる主な数値注記:
   - ROUTINE_CYCLE_US = 24µs
   - PERIMETER_MM = 1548mm
-  - 速度上限 99.9km/h (内部999)
+  - 速度上限 99.9km/h (内部999, 0.1km/h単位)
   - カム同期タイムアウト ≈ 50ms
   - RPMゼロ化 ≈ 1.2s無信号
   - 速度強制ゼロ ≈ 8s無信号
   - 点火保持 5ms
+  - ISRベース点火/噴射トリガー (ReadNe_ISR)
 
 ## 拡張アイデア (TODO)
 
