@@ -1,4 +1,4 @@
-@startuml Arduino_ECU_Workflow
+﻿@startuml Arduino_ECU_Workflow
 skinparam backgroundColor #FFFFFF
 skinparam activity {
   BackgroundColor<<ISR>> #FFF2CC
@@ -25,7 +25,7 @@ partition "setup()" <<Setup>> {
   if (AFR 有効?) then (yes)
     :AFR 初期化(未実装枠);
   endif
-  :attachInterrupt\nNE_A->ReadNe_ISR(RISING)\nNE_Z->NE_Z_RISE_ISR(RISING)\nWH->WH_PULSE_ISR(FALLING)\nG->G_PULSE_ISR(CHANGE);
+  :attachInterrupt\nNE_A->ReadNe_ISR(RISING)\nWH->WH_PULSE_ISR(FALLING)\nG->G_PULSE_ISR(CHANGE);
   :AGTimer.init(24us, Routine);\nAGTimer.start();
   :xTaskCreate(statusTask,500ms);\nvTaskStartScheduler();
   stop
@@ -35,34 +35,20 @@ partition "割込み" <<ISR>> {
   :WH_PULSE_ISR;
   :micros();
   :speedBefore→now差分でspeedWidth更新;
-  :速度再計算\nspeed = (36000 * PERIMETER_MM) / dt;\n上限 99.9km/h(内部999, 0.1km/h単位);
+  :速度再計算\nspeed = (36000 * PERIMETER_MM) / dt;\n上限 99.9km/h(内部999);
   :距離(mm)加算→km更新;
 
-  :ReadNe_ISR (NE_A RISING);
-  :NE_B位相でNe_deg±1;
-  if (ENG_ON and IGN_Status==1 and !IGN_His) then (ready)
-    if (Ne_deg >= 360 - calculatedIGN_CA) then (fire)
-      :timeNow_IGN_ON=micros();\nIGN LOW; IGN_Status=2;\nIGN_His=true;
-    endif
-  endif
-  if (ENG_ON and INJ_Status==1 and !INJ_His) then (ready)
-    if (Ne_deg >= INJ_STR_CA) then (fire)
-      :timeNow_INJ_ON=micros();\nINJ LOW; INJ_Status=2;\nINJ_His=true;
+  :ReadNe_ISR;
+  :NE_B位相でNe_deg±1 (A立上がり);
+  if (NE_Z立上がり) then (yes)
+    :tachoWidth更新;\nRPM = 60,000,000 / tachoWidth;\n異常値(>10000RPM)は無視;
+    if (Ne_deg>360 and G_Flag) then (sync)
+      :Ne_deg=0; G_Flag=false;\nCycleReset=true;
     endif
   endif
 
-  :NE_Z_RISE_ISR (NE_Z RISING);
-  :tachoWidth更新;\nRPM = 60,000,000 / tachoWidth;\n異常値(>10000RPM)は無視;
-  if (Ne_deg>360 and G_Flag) then (sync)
-    :Ne_deg=0; G_Flag=false;\nCycleReset=true;
-  endif
-
-  :G_PULSE_ISR (G_IN CHANGE);
-  if (G_IN == LOW) then (立ち下がり)
-    :G_Pulse=true;\nG_Flag=true;
-  else (立ち上がり)
-    :G_Pulse=false;
-  endif
+  :G_PULSE_ISR;
+  :G_Pulse=true;\nG_Flag=true (立上);\n(リリースはRoutineで処理)
 }
 
 partition "Routine(24µs)" <<Routine>> {
@@ -75,9 +61,20 @@ partition "Routine(24µs)" <<Routine>> {
     :Ne_deg = readMA735SPI();
   else (no)
     if (Encoder無効?) then (yes)
-      :Ne_deg += ROUTINE_CYCLE_US / usecperdig\n(usecperdig固定値1.0, 動的更新未実装);
+      :Ne_deg += ROUTINE_CYCLE_US / usecperdig;
     endif
   endif
+  :MAP選択ロジック更新;
+  if (スタータON) then (start)
+    :INJ= start_INJ_time;\nIGN= start_IGN_CA;
+  else (run)
+    if (SDMapEnabled) then (SD)
+      :parseCSVで読み込んだMAP使用(未実装枠);
+    else (default)
+      :defaultMapからRPMで選択\n見つからなければ INJ/IGN=0;
+    endif
+  endif
+  :G_IN入力に応じて\nG_Pulse/G_Flag更新;
   :カム同期タイムアウト監視\n(>50msでcycleReset);
   if (CycleReset) then (yes)
     :updateEngineMap();\nINJ/IGN状態初期化;\nGフラグクリア;
@@ -87,20 +84,24 @@ partition "Routine(24µs)" <<Routine>> {
     :cycleReset();
   endif
 
-  note right
-    点火/噴射の**開始トリガー**は
-    ReadNe_ISR(ISR)で処理済み
-    Routineは**終了管理のみ**
-  end note
-
+  if (ENG_ON and INJ_Status==1 and !INJ_His) then (ready)
+    if (Ne_deg >= INJ_STR_CA) then (fire)
+      :timeNow_INJ_ON=micros();\nINJ LOW; INJ_Status=2;\nINJ_His=true;
+    endif
+  endif
   if (INJ_Status==2) then (hold)
     :injDuration = calculatedINJ_time * 100 (µs);\nIncrease_Fuelによる補正位置(未実装);
     if (micros()-timeNow_INJ_ON >= injDuration) then (elapsed)
       :timeNow_INJ_OFF=micros();\nINJ HIGH; INJ_Status=1;
-      :injTotalUs += (INJ_OFF - INJ_ON);\ninjCycleCount++;
+      :燃料量積算\n gasml += (((Δt)*0.0000007)+0.0015)/1.5073;
     endif
   endif
 
+  if (ENG_ON and IGN_Status==1 and !IGN_His) then (ready)
+    if (Ne_deg >= 360 - calculatedIGN_CA) then (fire)
+      :timeNow_IGN_ON=micros();\nIGN LOW; IGN_Status=2;\nIGN_His=true;
+    endif
+  endif
   if (IGN_Status==2) then (hold)
     if (micros()-timeNow_IGN_ON >= 5000) then (>=5ms)
       :timeNow_IGN_OFF=micros();\nIGN HIGH; IGN_Status=1;
@@ -116,32 +117,28 @@ partition "statusTask(500ms)" <<RTOS>> {
   if (Launch) then (yes)
     :DISRESET LOW;\nworktime更新;
   else (no)
-    :DISRESET HIGH;\n統計(距離/燃料/injTotalUs/injCycleCount)リセット;
+    :DISRESET HIGH;\n統計(距離/燃料)リセット;
   endif
-  :INJ_timems = calculatedINJ_time * 0.1;
-  :燃料計算:\ngasml = (injTotalUs * INJ_FLOW_ML_PER_US\n       + injCycleCount * INJ_DEAD_TIME_ML)\n       / INJ_FUEL_DENSITY;
+  :INJ_timems, dispergas計算;
   :停止減衰(速度):\n最後WHからの経過(age)で速度再計算・低下;\n約8s(>8,000,000µs)で強制0;
   :無信号でRPMゼロ化(>1.2s = 1,200,000µs);
-  :シリアル出力フィールド:\nRPM\tINJ(ms)\tIGN_CA\tspeed(km/h,0.1分解能)\tdistance(km)\tfuel(ml)\tkm/L\tworktime(s)\tNe_deg;\nSerial1はCSV同順;
+  :シリアル出力フィールド:\nRPM\tINJ(ms)\tIGN_CA\tspeed(km/h,0.1)\tdistance(km)\tfuel(ml)\tkm/L\tworktime(s)\tNe_deg;\nSerial1はCSV同順;
   stop
 }
 
 legend left
-usecperdigモデル (EncoderEnabled=false かつ MA735SPIEnabled=false 時のみ):
-- NE_Aパルス間隔(µs/deg)ベースの推定補間
-- 現状は動的更新未実装 (固定値1.0)
-- MA735使用時はNe_degを直接取得
+usecperdigモデル:
+- NE_Aパルス間隔(µs/deg)を基に推定補間 (Encoder無効かつMA735無効時)
+- 簡易平滑例: (prev*3 + dt)/4
+- 異常(0や過大)は無視
 endlegend
 
 legend right
 数値注記:
-- ROUTINE_CYCLE_US=24µs, PERIMETER_MM=1548mm
-- 速度上限=99.9km/h(内部999, 0.1km/h単位)
-- カム同期タイムアウト≈50ms, RPMゼロ化≈1.2s
-- 速度強制ゼロ≈8s, 点火保持5ms
-- ISRベース点火/噴射トリガー(ReadNe_ISR)
+- ROUTINE_CYCLE_US=24µs, PERIMETER_MM=1548mm, 速度上限=99.9km/h(内部999)
+- カム同期タイムアウト≈50ms, RPMゼロ化≈1.2s, 速度強制ゼロ≈8s, 点火保持5ms
 endlegend
 
-
+ 
 
 @enduml
