@@ -201,6 +201,21 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 | `rmc_ra4m1_20` | SD 初期化ブロック有効 |
 | `uno_r3` | AVR 高速 I/O 経路使用 |
 
+## デバッグ
+
+[Ardu-Stim](https://github.com/todateman/Ardu-Stim.git)の`develop/furoshiki`ブランチにある`furoshiki_2025`のパターンと、[visa-mcp](https://github.com/todateman/visa-mcp)によるオシロスコープの制御を組み合わせて、ECUプログラムのデバッグを行う。
+
+- VISAリソース(REGOL DHO804): `USB0::6833::1101::DHO8A253701207::0::INSTR`
+- CH1: D9
+- CH2: D2
+- CH3: A0
+- CH4: A1
+- 回転数は外部から可変変化させるので、GPIOピン出力を確認して`main.cpp`の`defaultMap`に対して乖離がないか確認する
+- 一度スタータボタンONの信号を入力しなければ`INJ_OUT`と`IGN_OUT`の信号出力を開始しないので、手動で実行する。
+
+評価結果:
+- [document/debug_report_20260330.md](document/debug_report_20260330.md)
+
 ## ライセンス
 
 - 本体: リポジトリ LICENSE (MIT)
