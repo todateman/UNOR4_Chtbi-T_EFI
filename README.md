@@ -122,12 +122,12 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 
 ## 点火制御
 
-進角: `calculatedIGN_CA`  
-ドゥエル時間（µs）: `Dwell_Time_US`
- → ドゥエル時間をクランク角に変換: `Dwell_Time_CA = Dwell_Time_US * 360 / tachoWidth`
-条件: `Ne_deg >= (360 - calculatedIGN_CA - Dwell_Time_CA)` で点火 LOW  
-保持: クランク角が `360 - calculatedIGN_CA` に達する or `Dwell_Time_US` 経過で HIGH 戻し
-点火: HIGH 戻しの瞬間にスパークプラグから放電
+- 進角: `calculatedIGN_CA`  
+- ドゥエル時間（µs）: `Dwell_Time_US`
+  - ドゥエル時間をクランク角に変換: `Dwell_Time_CA = Dwell_Time_US * 360 / tachoWidth`
+- 条件: `Ne_deg >= (360 - calculatedIGN_CA - Dwell_Time_CA)` で点火 LOW  
+- 保持: クランク角が `360 - calculatedIGN_CA` に達する or `Dwell_Time_US` 経過で HIGH 戻し  
+- 点火: HIGH 戻しの瞬間にスパークプラグから放電
 
 ## MAP
 
@@ -191,14 +191,14 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 
 ## 拡張アイデア (TODO)
 
-- MAP内パラメータ選択・燃料噴射・点火処理高速化  
+- [x] MAP内パラメータ選択・燃料噴射・点火処理高速化  
   (現状では処理遅れに起因すると思われる過大な進角角度を設定している)
-- SD から MAP 読込実装 (`parseCSV`)
-- AFR センサ補正ロジック (`updateAFR`)
-- クランク角推定のドリフト補正（非エンコーダ時）
-- 例外検出 (センサ断線・異常 RPM)
-- フラッシュ書き込みによる学習補正保存
-- 単位/係数の物理モデル化（燃料密度, 噴射流量）
+- [ ] SD から MAP 読込実装 (`parseCSV`)
+- [ ] AFR センサ補正ロジック (`updateAFR`)
+- [ ] クランク角推定のドリフト補正（非エンコーダ時）
+- [ ] 例外検出 (センサ断線・異常 RPM)
+- [ ] フラッシュ書き込みによる学習補正保存
+- [ ] 単位/係数の物理モデル化（燃料密度, 噴射流量）
 
 ## ビルドオプションフラグ
 
