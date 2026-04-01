@@ -28,7 +28,7 @@ Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用EC
 PlatformIO 環境: [platformio.ini](platformio.ini)
 
 | Env | ボード | 備考 |
-|-----|--------|------|
+| --- | ------ | ---- |
 | `uno_r4_minima` | Arduino UNO R4 Minima | デフォルト |
 | `rmc_ra4m1_20` | カスタム RA4M1 (`-D rmc_ra4m1_20`) | SD動作分岐あり |
 | `uno_r3` | ATmega328P | 高速GPIO分岐あり |
@@ -45,11 +45,11 @@ pio device monitor -b 115200
 ## 主要定数 / パラメータ
 
 | 項目 | 定義 | 説明 |
-|------|------|------|
+| ---- | --- | ---- |
 | ROUTINE_CYCLE_US | 24 | メイン周期 (µs) |
-| IGNITION_HOLD_US | 5000 | 点火出力保持時間 |
+| Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
 | PERIMETER_MM | 1548 | タイヤ周長(mm) |
-| TACHO_RPM_MAX | 6000 | 上限保護 |
+| TACHO_RPM_MAX | 6000 | レブリミット <BR> （回転数上限保護） |
 
 ## ピン割り当て
 
@@ -58,7 +58,7 @@ pio device monitor -b 115200
 - 詳細は [src/main.cpp](src/main.cpp) 参照。
 
 | 信号 | 物理ピン | 説明 |
-|------|----------|------|
+| ---- | -------- | ---- |
 | NE_A_IN | 2 | クランク角 A (1deg/パルス) |
 | NE_B_IN | 8 | クランク角 B (位相判定) |
 | NE_Z_IN | 9 | クランク角0deg基準 |
@@ -73,6 +73,10 @@ pio device monitor -b 115200
 | MA735_CS | 10 | MA735 SPI CS |
 
 LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
+
+## 信号イメージ
+
+![Engine cycle diagram showing crankshaft and camshaft pulse timing](document/engine_cycle.png)
 
 ## 処理フロー概要
 
@@ -119,8 +123,11 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 ## 点火制御
 
 進角: `calculatedIGN_CA`  
-条件: `Ne_deg >= (360 - calculatedIGN_CA)` で点火 LOW  
-保持: `IGNITION_HOLD_US` 経過で HIGH 戻し。
+ドゥエル時間（µs）: `Dwell_Time_US`
+ → ドゥエル時間をクランク角に変換: `Dwell_Time_CA = Dwell_Time_US * 360 / tachoWidth`
+条件: `Ne_deg >= (360 - calculatedIGN_CA - Dwell_Time_CA)` で点火 LOW  
+保持: クランク角が `360 - calculatedIGN_CA` に達する or `Dwell_Time_US` 経過で HIGH 戻し
+点火: HIGH 戻しの瞬間にスパークプラグから放電
 
 ## MAP
 
@@ -196,7 +203,7 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 ## ビルドオプションフラグ
 
 | フラグ | 影響 |
-|--------|------|
+| ------ | --- |
 | `uno_r4_minima` | 自動 (PlatformIO env) |
 | `rmc_ra4m1_20` | SD 初期化ブロック有効 |
 | `uno_r3` | AVR 高速 I/O 経路使用 |
@@ -214,6 +221,7 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 - 一度スタータボタンONの信号を入力しなければ`INJ_OUT`と`IGN_OUT`の信号出力を開始しないので、手動で実行する。
 
 評価結果:
+
 - [document/debug_report_20260330.md](document/debug_report_20260330.md)
 
 ## ライセンス

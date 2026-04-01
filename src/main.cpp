@@ -26,7 +26,7 @@ void IRAM_ATTR G_PULSE_ISR();
 
 #define PERIMETER_MM         1548UL   // [mm]
 #define TACHO_RPM_MAX        6000
-#define IGNITION_HOLD_US     5000
+#define Dwell_Time_US        5000
 
 const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
 const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
@@ -56,7 +56,7 @@ SPISettings ma735Settings(12000000, MSBFIRST, SPI_MODE0);
 //-----------------------------------------------------------------------------
 volatile unsigned long tachoBefore  = 0;  // NE_Z_INの立ち上がりで更新
 volatile unsigned long tachoAfter   = 0;  // NE_Z_INの立ち下がりで更新
-volatile unsigned long tachoWidth   = 0;  // NE_Z_INのパルス幅
+volatile unsigned long tachoWidth   = 0;  // NE_Z_INのパルス幅（us）
 volatile uint16_t      tachoRpm     = 0;  // NE_Z_INの回転数（RPM）
 volatile int16_t       Ne_deg       = 0;  // クランク角度（CA）
 volatile int16_t       Ne_rev       = 0;  // クランク回転数（回転数）
@@ -72,9 +72,10 @@ volatile unsigned long speed        = 0;  // WH_INの速度（0.1 km/h 単位）
 
 bool ENG_ON                          = false; // エンジンONフラグ（キルスイッチに連動）
 volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
-volatile int16_t  calculatedIGN_CA   = 0; // 点火タイミング進角角度（CA）
+volatile int16_t  calculatedIGN_CA   = 0; // 点火進角角度（CA）
+volatile int16_t  Dwell_Time_CA      = 0; // ドゥエル時間（IGコイルへの充電時間）をクランク角度（CA）へ変換
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
-int16_t  start_IGN_CA                = 75;  // 始動時の点火タイミング進角角度（CA）
+int16_t  start_IGN_CA                = 50;  // 始動時の点火タイミング進角角度（CA）
 volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -113,21 +114,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  90, 75},
-  {800,  90, 75},
-  {1200, 90, 75},
-  {1600, 90, 80},
-  {2000, 90, 80},
-  {2400, 85, 100},
-  {2800, 85, 100},
-  {3200, 75, 110},
-  {3600, 72, 130},
-  {4000, 68, 135},
-  {4400, 65, 145},
-  {4800, 63, 145},
-  {5200, 57, 145},
-  {5600, 57, 145},
-  {6000, 57, 145}
+  {400,  75, 25},
+  {800,  37, 25},
+  {1200, 25, 25},
+  {1600, 19, 25},
+  {2000, 15, 25},
+  {2400, 13, 25},
+  {2800, 11, 25},
+  {3200, 9,  25},
+  {3600, 8,  25},
+  {4000, 8,  25},
+  {4400, 7,  25},
+  {4800, 6,  25},
+  {5200, 6,  25},
+  {5600, 5,  25},
+  {6000, 5,  25}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -188,6 +189,8 @@ void IRAM_ATTR ReadNe_ISR() {
     uint16_t _tachoRpm = (tachoWidth > 0) ? (uint16_t)(60000000UL / tachoWidth) : 0;
     if (_tachoRpm < 10000) {  // 10000 RPMを超える異常値は無視
       tachoRpm = _tachoRpm;
+      // ドゥエル時間を回転数に応じたクランク角度に変換
+      Dwell_Time_CA = (int16_t)(Dwell_Time_US * 360.0 / tachoWidth);
     }
     if (Ne_deg > 360 && G_Pulse_Flag) {
       Ne_deg = 0;
@@ -345,30 +348,36 @@ void Routine() {
   }
   lastStartState = startState;
   
+  // 燃料噴射制御 
   if (ENG_ON && INJ_Status == 1 && !INJ_His) {
+    // 燃料噴射タイミングに達したらON
     if (Ne_deg >= INJ_STR_CA) {
       timeNow_INJ_ON = micros();
       INJ_His = true;
       fastestdigitalWrite(INJ_OUT, LOW);
-      INJ_Status = 2;
+      INJ_Status = 2;     // ON_HOLD状態へ
     }
   }
   
+  // 燃料噴射ON_HOLD状態の処理
   if (INJ_Status == 2) {
     unsigned long injDuration = calculatedINJ_time * 100UL;
     if (Increase_Fuel) {
       // AFRによる補正（実装必要なら）
     }
+    // 燃料噴射時間が経過したらOFF
     if (micros() - timeNow_INJ_ON >= injDuration) {
       timeNow_INJ_OFF = micros();
       fastestdigitalWrite(INJ_OUT, HIGH);
-      INJ_Status = 1;
+      INJ_Status = 1;   // 次の噴射に備えてON状態へ
       gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
     }
   }
   
+  // 点火制御
   if (ENG_ON && IGN_Status == 1 && !IGN_His) {
-    if (Ne_deg >= (360 - calculatedIGN_CA)) {
+    // 点火タイミングに達したらON
+    if (Ne_deg >= (360 - calculatedIGN_CA - Dwell_Time_CA)) {
       timeNow_IGN_ON = micros();
       IGN_His = true;
       fastestdigitalWrite(IGN_OUT, LOW);
@@ -376,8 +385,10 @@ void Routine() {
     }
   }
 
+  // 点火ON_HOLD状態の処理
   if (IGN_Status == 2) {
-    if (micros() - timeNow_IGN_ON >= IGNITION_HOLD_US) {
+    // 進角角度に達したら or ドゥエル時間が経過したらOFF
+    if (Ne_deg >= 360 - calculatedIGN_CA || micros() - timeNow_IGN_ON >= Dwell_Time_US) {
       timeNow_IGN_OFF = micros();
       fastestdigitalWrite(IGN_OUT, HIGH);
       IGN_Status = 1;

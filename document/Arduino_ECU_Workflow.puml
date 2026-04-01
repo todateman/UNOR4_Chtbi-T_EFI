@@ -98,12 +98,12 @@ partition "Routine(24µs)" <<Routine>> {
   endif
 
   if (ENG_ON and IGN_Status==1 and !IGN_His) then (ready)
-    if (Ne_deg >= 360 - calculatedIGN_CA) then (fire)
+    if (Ne_deg >= 360 - calculatedIGN_CA - Dwell_Time_CA) then (fire)
       :timeNow_IGN_ON=micros();\nIGN LOW; IGN_Status=2;\nIGN_His=true;
     endif
   endif
   if (IGN_Status==2) then (hold)
-    if (micros()-timeNow_IGN_ON >= 5000) then (>=5ms)
+    if (Ne_deg >= 360 - calculatedIGN_CA || micros()-timeNow_IGN_ON >= 5000) then (>=5ms)
       :timeNow_IGN_OFF=micros();\nIGN HIGH; IGN_Status=1;
     endif
   endif
