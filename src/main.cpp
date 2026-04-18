@@ -75,7 +75,7 @@ volatile uint8_t  calculatedINJ_time = 0; // 燃料噴射時間（x0.1ms）
 volatile int16_t  calculatedIGN_CA   = 0; // 点火進角角度（CA）
 volatile int16_t  Dwell_Time_CA      = 0; // ドゥエル時間（IGコイルへの充電時間）をクランク角度（CA）へ変換
 uint8_t  start_INJ_time              = 50;  // 始動時の燃料噴射時間（x0.1ms）
-int16_t  start_IGN_CA                = 50;  // 始動時の点火タイミング進角角度（CA）
+int16_t  start_IGN_CA                = 10;  // 始動時の点火タイミング進角角度（CA）
 volatile int16_t  INJ_STR_CA         = 0; // 燃料噴射タイミング角度（CA）
 volatile uint8_t  INJ_Status         = 1; // 燃料噴射状態（0:OFF, 1:ON, 2:ON_HOLD）
 volatile uint8_t  IGN_Status         = 1; // 点火状態（0:OFF, 1:ON, 2:ON_HOLD）
@@ -114,21 +114,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  75, 25},
-  {800,  37, 25},
-  {1200, 25, 25},
-  {1600, 19, 25},
-  {2000, 15, 25},
-  {2400, 13, 25},
-  {2800, 11, 25},
-  {3200, 9,  25},
-  {3600, 8,  25},
-  {4000, 8,  25},
-  {4400, 7,  25},
-  {4800, 6,  25},
-  {5200, 6,  25},
-  {5600, 5,  25},
-  {6000, 5,  25}
+  {400,  90, 10},
+  {800,  90, 10},
+  {1200, 90, 10},
+  {1600, 90, 10},
+  {2000, 90, 10},
+  {2400, 90, 10},
+  {2800, 90, 10},
+  {3200, 90,  10},
+  {3600, 90,  10},
+  {4000, 90,  10},
+  {4400, 90,  10},
+  {4800, 90,  10},
+  {5200, 90,  10},
+  {5600, 90,  10},
+  {6000, 90,  10}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
