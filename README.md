@@ -47,9 +47,12 @@ pio device monitor -b 115200
 | 項目 | 定義 | 説明 |
 | ---- | --- | ---- |
 | ROUTINE_CYCLE_US | 24 | メイン周期 (µs) |
-| Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
 | PERIMETER_MM | 1548 | タイヤ周長(mm) |
 | TACHO_RPM_MAX | 6000 | レブリミット <BR> （回転数上限保護） |
+| Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
+| start_INJ_time | 50 | 始動時の燃料噴射時間（x0.1ms） |
+| start_IGN_CA | 10 | 始動時の点火進角（CA） |
+| INJ_END_CA | 700 | 燃料噴射終了タイミング角度（CA） |
 
 ## ピン割り当て
 
@@ -101,7 +104,7 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
    - スタート/キル状態評価
    - カム同期タイムアウト→`cycleReset`
    - マップ更新: [`updateEngineMap`](src/main.cpp)
-   - 噴射開始条件 (角度 >= `INJ_STR_CA`)
+   - 噴射開始条件 (角度 >= `INJ_STR_CA`、`INJ_END_CA` と噴射時間から逆算)
    - 噴射時間経過で OFF & 燃料量積算
    - 点火進角計算 & 保持時間後 OFF
 
@@ -110,6 +113,13 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
    - シリアル出力 (タブ/CSV)
 
 ## 燃料噴射計算
+
+噴射終了角度: `INJ_END_CA`（定数、単位: CA）  
+噴射開始角度: `INJ_STR_CA`（毎サイクルリセット時に逆算）
+
+```text
+INJ_STR_CA = INJ_END_CA - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidth[µs]
+```
 
 噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`  
 燃料量近似:
@@ -142,7 +152,6 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 - 拡張:  
   - SD 読み込み有効化: フラグ `SDMapEnabled = true;` + `parseCSV()` 実装  
   - AFR 補正: A/Fセンサによる燃料噴射量補正のため、`Increase_Fuel` 分岐位置あり（未実装）
-  - 将来: `INJ_STR_CA` 列追加予定 (現状 0 固定)。
 
 ## 高速GPIO
 
