@@ -27,9 +27,10 @@ void IRAM_ATTR G_PULSE_ISR();
 #define PERIMETER_MM         1548UL   // [mm]
 #define TACHO_RPM_MAX        6000     // レブリミット（RPM）※これを超えると燃料噴射・点火停止
 #define Dwell_Time_US        5000     // ドゥエル時間（IGコイルへの充電時間）[us]
-#define start_INJ_time       50       // 始動時の燃料噴射時間（x0.1ms）
-#define start_IGN_CA         10       // 始動時の点火タイミング進角角度（CA）
-#define INJ_END_CA           700      // 燃料噴射終了タイミング角度（CA）
+#define start_INJ_time       100      // 始動時の燃料噴射時間（x0.1ms）
+#define start_IGN_CA         0        // 始動時の点火タイミング進角角度（CA）
+#define start_INJ_END_CA     30       // 始動時の燃料噴射終了タイミング角度（CA）
+#define INJ_END_CA           710      // 燃料噴射終了タイミング角度（CA）
 
 const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
 const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
@@ -88,6 +89,7 @@ volatile unsigned long timeNow_IGN_OFF = 0; // 点火OFF時間（us）
 
 volatile bool INJ_His = false;            // 燃料噴射履歴（ON/OFF）
 volatile bool IGN_His = false;            // 点火履歴（ON/OFF）
+volatile bool inj360Reset = false;        // 360CA安全リセットフラグ
 
 volatile bool G_Pulse      = false;       // G_INのパルス状態（立ち上がり）
 volatile bool G_Pulse_Flag = false;       // G_INのパルスフラグ（立ち上がり）
@@ -115,21 +117,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  50, 10},
-  {800,  50, 10},
-  {1200, 50, 10},
-  {1600, 50, 10},
-  {2000, 50, 10},
-  {2400, 50, 10},
-  {2800, 50, 10},
-  {3200, 50, 10},
-  {3600, 50, 10},
-  {4000, 50, 10},
-  {4400, 50, 10},
-  {4800, 50, 10},
-  {5200, 50, 10},
-  {5600, 50, 10},
-  {6000, 50, 10}
+  {400,  40, 10},
+  {800,  40, 10},
+  {1200, 40, 10},
+  {1600, 40, 10},
+  {2000, 40, 10},
+  {2400, 40, 10},
+  {2800, 40, 10},
+  {3200, 40, 10},
+  {3600, 40, 10},
+  {4000, 40, 10},
+  {4400, 40, 10},
+  {4800, 40, 10},
+  {5200, 40, 10},
+  {5600, 40, 10},
+  {6000, 40, 10}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
@@ -276,21 +278,30 @@ void updateEngineMap() {
 //-----------------------------------------------------------------------------
 void cycleReset() {
   updateEngineMap();
+  // 始動時は start_INJ_END_CA、通常時は INJ_END_CA を使用
+  int16_t inj_end_ca = (startState == LOW) ? start_INJ_END_CA : INJ_END_CA;
   // 燃料噴射開始タイミング角度を逆算（終了角度 - 噴射時間相当のCA）
-  if (tachoWidth > 0)
-    INJ_STR_CA = INJ_END_CA - (int16_t)((uint32_t)calculatedINJ_time * 100UL * 360UL / tachoWidth);
-  else
-    INJ_STR_CA = INJ_END_CA;
+  if (tachoWidth > 0) {
+    INJ_STR_CA = inj_end_ca - (int16_t)((uint32_t)calculatedINJ_time * 100UL * 360UL / tachoWidth);
+    if (INJ_STR_CA < 0)
+      INJ_STR_CA += 720;  // 0CA跨ぎ: サイクル後半の開始角度（0〜720CA）に変換
+  } else {
+    INJ_STR_CA = inj_end_ca;
+  }
   if (tachoRpm > TACHO_RPM_MAX) {
     timeNow_INJ_ON  = 0;
     timeNow_INJ_OFF = 0;
   }
-  INJ_Status = 1;
+  // 噴射中(INJ_Status==2)の場合はリセットしない（0CA跨ぎ噴射の継続を保護）
+  if (INJ_Status != 2) {
+    INJ_Status = 1;
+    INJ_His = false;
+  }
   IGN_Status = 1;
-  INJ_His = false;
   IGN_His = false;
   G_Pulse = false;
   G_Pulse_Flag = false;
+  inj360Reset = false;  // 新サイクル開始時に360CAリセットフラグをクリア
 }
 
 //-----------------------------------------------------------------------------
@@ -353,7 +364,18 @@ void Routine() {
     }
   }
   lastStartState = startState;
-  
+
+  // 360CA安全リセット: 意図しない燃料噴射の継続を防止
+  if (Ne_deg >= 360 && !inj360Reset) {
+    if (INJ_Status == 2) {  // 噴射継続中なら強制OFF
+      timeNow_INJ_OFF = micros();
+      fastestdigitalWrite(INJ_OUT, HIGH);
+      INJ_Status = 1;
+      gasml += (((timeNow_INJ_OFF - timeNow_INJ_ON) * 0.0000007) + 0.0015) / 1.5073;
+    }
+    inj360Reset = true;
+  }
+
   // 燃料噴射制御 
   if (ENG_ON && INJ_Status == 1 && !INJ_His) {
     // 燃料噴射タイミングに達したらON

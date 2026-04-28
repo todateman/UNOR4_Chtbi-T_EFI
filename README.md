@@ -52,7 +52,8 @@ pio device monitor -b 115200
 | Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
 | start_INJ_time | 50 | 始動時の燃料噴射時間（x0.1ms） |
 | start_IGN_CA | 10 | 始動時の点火進角（CA） |
-| INJ_END_CA | 700 | 燃料噴射終了タイミング角度（CA） |
+| start_INJ_END_CA | 20 | 始動時の燃料噴射終了タイミング角度（CA） |
+| INJ_END_CA | 700 | 通常時の燃料噴射終了タイミング角度（CA） |
 
 ## ピン割り当て
 
@@ -104,7 +105,8 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
    - スタート/キル状態評価
    - カム同期タイムアウト→`cycleReset`
    - マップ更新: [`updateEngineMap`](src/main.cpp)
-   - 噴射開始条件 (角度 >= `INJ_STR_CA`、`INJ_END_CA` と噴射時間から逆算)
+   - 噴射開始条件 (角度 >= `INJ_STR_CA`、始動時 `start_INJ_END_CA`・通常時 `INJ_END_CA` と噴射時間から逆算、0CA跨ぎ対応)
+   - 360CA通過時に噴射継続中なら強制OFF（安全リセット）
    - 噴射時間経過で OFF & 燃料量積算
    - 点火進角計算 & 保持時間後 OFF
 
@@ -114,12 +116,21 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
 
 ## 燃料噴射計算
 
-噴射終了角度: `INJ_END_CA`（定数、単位: CA）  
+噴射終了角度: 始動時（`startState == LOW`）は `start_INJ_END_CA`、通常時は `INJ_END_CA`  
 噴射開始角度: `INJ_STR_CA`（毎サイクルリセット時に逆算）
 
 ```text
-INJ_STR_CA = INJ_END_CA - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidth[µs]
+inj_end_ca = (startState == LOW) ? start_INJ_END_CA : INJ_END_CA
+INJ_STR_CA = inj_end_ca - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidth[µs]
+// INJ_STR_CA < 0 の場合（0CA跨ぎ）: INJ_STR_CA += 720
 ```
+
+**0CA跨ぎ対応**: 噴射開始が720CA付近・終了が次サイクル序盤（例: 716CA→20CA）の場合、
+`INJ_STR_CA` が負値になるため `+720` で正規化（0〜720CAの範囲に収める）。  
+`cycleReset()` 呼び出し時に噴射継続中（`INJ_Status == 2`）であれば INJ状態をリセットせず、
+タイマーで正常終了させる。  
+**360CA安全リセット**: 1サイクル内で360CAを通過した時点でも噴射中の場合は強制OFFし、
+意図しない噴射継続を防止（`inj360Reset` フラグで1サイクルに1回限り実行）。
 
 噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`  
 燃料量近似:
