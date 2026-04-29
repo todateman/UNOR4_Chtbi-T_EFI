@@ -28,6 +28,15 @@ void IRAM_ATTR G_PULSE_ISR();
 #define TACHO_RPM_MAX        6000
 #define IGNITION_HOLD_US     5000
 
+// スタータモータ保護定数
+#define STARTER_MAX_RUN_MS   2000U    // スタータ最大連続動作時間（ms）
+#define STARTER_REST_MS      1000U    // スタータ休止時間（ms）
+#define STARTER_MAX_CYCLES   3U       // スタータ最大サイクル数
+#define STR_PROT_IDLE        0U       // 状態：アイドル
+#define STR_PROT_RUNNING     1U       // 状態：スタータ実行中
+#define STR_PROT_RESTING     2U       // 状態：休止中
+#define STR_PROT_DONE        3U       // 状態：最大サイクル到達
+
 const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
 const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
 const uint8_t NE_Z_IN      = 9;   // クランク角エンコーダBパルス(360°で1パルス)
@@ -100,6 +109,11 @@ unsigned long starttime    = 0;           // エンジン始動時間（ms）
 volatile uint16_t worktime = 0;           // エンジン稼働時間（秒）
 
 volatile float usecperdig = 1.0;          // NE_A_INの1パルスあたりの時間（us）
+
+// スタータモータ保護用変数
+uint8_t       starterProtState  = STR_PROT_IDLE;  // スタータ保護状態
+unsigned long starterProtStart  = 0;               // 現在状態の開始時間（ms）
+uint8_t       starterCycleCount = 0;               // 完了したサイクル数
 
 //-----------------------------------------------------------------------------
 // MAPテーブル（SD未使用の場合のデフォルトMAP）
@@ -379,18 +393,50 @@ void Routine() {
   // キルスイッチの状態を確認
   if (fastestdigitalRead(ENGOFF_IN) == LOW) {   // キルスイッチがONの場合（運転状態）
     if (startState == LOW) {                      // スタートボタンON場合
-      STR_IN_state = true;
-      fastestdigitalWrite(STR_OUT, LOW);
-      Launch = true;
+      // スタータモータ保護：サイクル管理
+      if (starterProtState == STR_PROT_IDLE) {    // 新規始動：RUNNINGへ移行
+        starterProtState = STR_PROT_RUNNING;
+        starterProtStart = millis();
+        starterCycleCount = 0;
+      } else if (starterProtState == STR_PROT_RUNNING) { // RUNNING中
+        if (millis() - starterProtStart >= STARTER_MAX_RUN_MS) {
+          starterCycleCount++;
+          if (starterCycleCount < STARTER_MAX_CYCLES) {
+            starterProtState = STR_PROT_RESTING;  // 休止へ移行
+            starterProtStart = millis();
+          } else {
+            starterProtState = STR_PROT_DONE;     // 最大サイクル到達
+          }
+        }
+      } else if (starterProtState == STR_PROT_RESTING) {  // RESTING中
+        if (millis() - starterProtStart >= STARTER_REST_MS) {
+          starterProtState = STR_PROT_RUNNING;    // 再始動へ移行
+          starterProtStart = millis();
+        }
+      }
+      // スタータリレー制御
       ENG_ON = true;
+      Launch = true;
       if (starttime == 0)
         starttime = millis();
+      if (starterProtState == STR_PROT_RUNNING) {
+        STR_IN_state = true;
+        fastestdigitalWrite(STR_OUT, LOW);
+      } else {  // RESTING または DONE
+        STR_IN_state = false;
+        fastestdigitalWrite(STR_OUT, HIGH);
+      }
     } else {
+      // スタートボタンOFF: 保護状態リセット
+      starterProtState = STR_PROT_IDLE;
+      starterCycleCount = 0;
       STR_IN_state = false;
       fastestdigitalWrite(STR_OUT, HIGH);
     }    
   }
   else {                                      // キルスイッチがOFFの場合（停止状態）
+    starterProtState = STR_PROT_IDLE;
+    starterCycleCount = 0;
     ENG_ON = false;
   }
 }
