@@ -119,7 +119,37 @@ partition "Routine(24µs)" <<Routine>> {
     endif
   endif
 
-  :キル/スタート状態評価\nSTR_OUT制御, Launch/ENG_ON更新;
+  :キル/スタート状態評価;
+  if (ENGOFF_IN == LOW?) then (運転許可)
+    if (startState == LOW?) then (自動モード有効)
+      if (!ENG_ON and !cranking and !crankResting\nand !crankFailed and speed < 20km/h?) then (始動条件成立)
+        :ENG_ON=true; cranking=true; Launch=true;\nSTR_OUT LOW; crankCycles++;\ncrankOnTime=millis();
+      endif
+      if (cranking?) then (yes)
+        if (millis()-crankOnTime >= 2000ms?) then (タイムアウト)
+          :cranking=false; ENG_ON=false;\nSTR_OUT HIGH;\ncrankResting=true; crankRestTime=millis();
+        elseif (tachoRpm >= 1500rpm x 0.1s?) then (始動完了)
+          :cranking=false;\nSTR_OUT HIGH;\ncrankCycles=0;
+        endif
+      endif
+      if (crankResting?) then (yes)
+        if (millis()-crankRestTime >= 1000ms?) then (休止完了)
+          if (crankCycles >= 3?) then (3サイクル到達)
+            :crankFailed=true;\n(キルスイッチ操作でリセット);
+          else (再始動)
+            :ENG_ON=true; cranking=true;\nSTR_OUT LOW; crankCycles++;\ncrankOnTime=millis();
+          endif
+        endif
+      endif
+      if (ENG_ON and speed >= 30km/h?) then (停止条件)
+        :ENG_ON=false; cranking=false;\ncrankResting=false; crankCycles=0;\ncrankFailed=false; STR_OUT HIGH;
+      endif
+    else (自動モード無効)
+      :ENG_ON=false; cranking=false;\ncrankResting=false; crankCycles=0;\ncrankFailed=false; STR_OUT HIGH;
+    endif
+  else (キルスイッチON)
+    :ENG_ON=false; cranking=false;\ncrankResting=false; crankCycles=0;\ncrankFailed=false; STR_OUT HIGH;
+  endif
   stop
 }
 
@@ -150,6 +180,8 @@ legend right
 - カム同期タイムアウト≈50ms, RPMゼロ化≈1.2s, 速度強制ゼロ≈8s, 点火保持5ms
 - 0CA跨ぎ噴射: INJ_STR_CA<0の場合+720で正規化(0〜720CA範囲)
 - 360CA安全リセット: 1サイクル1回限り、噴射継続中を強制OFF
+- 自動始動: speed<20km/h→スタータON(最大2s)→1s休止→最大3サイクル
+- 自動停止: speed>=30km/h→ENG_OFF
 endlegend
 
  
