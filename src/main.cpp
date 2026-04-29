@@ -27,10 +27,10 @@ void IRAM_ATTR G_PULSE_ISR();
 #define PERIMETER_MM         1548UL   // [mm]
 #define TACHO_RPM_MAX        6000     // レブリミット（RPM）※これを超えると燃料噴射・点火停止
 #define Dwell_Time_US        5000     // ドゥエル時間（IGコイルへの充電時間）[us]
-#define start_INJ_time       100      // 始動時の燃料噴射時間（x0.1ms）
+#define start_INJ_time       80       // 始動時の燃料噴射時間（x0.1ms）
 #define start_IGN_CA         0        // 始動時の点火タイミング進角角度（CA）
-#define start_INJ_END_CA     30       // 始動時の燃料噴射終了タイミング角度（CA）
-#define INJ_END_CA           710      // 燃料噴射終了タイミング角度（CA）
+#define start_INJ_END_CA     20       // 始動時の燃料噴射終了タイミング角度（CA）
+#define INJ_END_CA           680      // 燃料噴射終了タイミング角度（CA）
 
 const uint8_t NE_A_IN      = 2;   // クランク角エンコーダAパルス(360°で360パルス)
 const uint8_t NE_B_IN      = 8;   // クランク角エンコーダBパルス(360°で360パルス)
@@ -117,21 +117,21 @@ struct MapEntry {
 };
 
 const MapEntry defaultMap[] = {
-  {400,  40, 10},
-  {800,  40, 10},
-  {1200, 40, 10},
-  {1600, 40, 10},
-  {2000, 40, 10},
-  {2400, 40, 10},
-  {2800, 40, 10},
-  {3200, 40, 10},
-  {3600, 40, 10},
-  {4000, 40, 10},
-  {4400, 40, 10},
-  {4800, 40, 10},
-  {5200, 40, 10},
-  {5600, 40, 10},
-  {6000, 40, 10}
+  {400,  40, 15},
+  {800,  40, 15},
+  {1200, 40, 15},
+  {1600, 40, 15},
+  {2000, 44, 20},
+  {2400, 44, 20},
+  {2800, 44, 25},
+  {3200, 42, 25},
+  {3600, 40, 25},
+  {4000, 40, 30},
+  {4400, 40, 30},
+  {4800, 40, 30},
+  {5200, 40, 30},
+  {5600, 40, 30},
+  {6000, 40, 30}
 };
 const uint8_t defaultMapSize = sizeof(defaultMap) / sizeof(defaultMap[0]);
 
