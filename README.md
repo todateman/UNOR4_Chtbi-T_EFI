@@ -1,4 +1,4 @@
-﻿# UNOR4_Chtbi-T_EFI
+﻿﻿# UNOR4_Chtbi-T_EFI
 
 Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用ECUプログラム
 
@@ -28,7 +28,7 @@ Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用EC
 PlatformIO 環境: [platformio.ini](platformio.ini)
 
 | Env | ボード | 備考 |
-|-----|--------|------|
+| --- | ------ | ---- |
 | `uno_r4_minima` | Arduino UNO R4 Minima | デフォルト |
 | `rmc_ra4m1_20` | カスタム RA4M1 (`-D rmc_ra4m1_20`) | SD動作分岐あり |
 | `uno_r3` | ATmega328P | 高速GPIO分岐あり |
@@ -45,11 +45,15 @@ pio device monitor -b 115200
 ## 主要定数 / パラメータ
 
 | 項目 | 定義 | 説明 |
-|------|------|------|
+| ---- | --- | ---- |
 | ROUTINE_CYCLE_US | 24 | メイン周期 (µs) |
-| IGNITION_HOLD_US | 5000 | 点火出力保持時間 |
 | PERIMETER_MM | 1548 | タイヤ周長(mm) |
-| TACHO_RPM_MAX | 6000 | 上限保護 |
+| TACHO_RPM_MAX | 6000 | レブリミット <BR> （回転数上限保護） |
+| Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
+| start_INJ_time | 50 | 始動時の燃料噴射時間（x0.1ms） |
+| start_IGN_CA | 10 | 始動時の点火進角（CA） |
+| start_INJ_END_CA | 20 | 始動時の燃料噴射終了タイミング角度（CA） |
+| INJ_END_CA | 700 | 通常時の燃料噴射終了タイミング角度（CA） |
 
 ## ピン割り当て
 
@@ -58,7 +62,7 @@ pio device monitor -b 115200
 - 詳細は [src/main.cpp](src/main.cpp) 参照。
 
 | 信号 | 物理ピン | 説明 |
-|------|----------|------|
+| ---- | -------- | ---- |
 | NE_A_IN | 2 | クランク角 A (1deg/パルス) |
 | NE_B_IN | 8 | クランク角 B (位相判定) |
 | NE_Z_IN | 9 | クランク角0deg基準 |
@@ -73,6 +77,10 @@ pio device monitor -b 115200
 | MA735_CS | 10 | MA735 SPI CS |
 
 LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
+
+## 信号イメージ
+
+![Engine cycle diagram showing crankshaft and camshaft pulse timing](document/engine_cycle.png)
 
 ## 処理フロー概要
 
@@ -97,7 +105,8 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
    - スタート/キル状態評価
    - カム同期タイムアウト→`cycleReset`
    - マップ更新: [`updateEngineMap`](src/main.cpp)
-   - 噴射開始条件 (角度 >= `INJ_STR_CA`)
+   - 噴射開始条件 (角度 >= `INJ_STR_CA`、始動時 `start_INJ_END_CA`・通常時 `INJ_END_CA` と噴射時間から逆算、0CA跨ぎ対応)
+   - 360CA通過時に噴射継続中なら強制OFF（安全リセット）
    - 噴射時間経過で OFF & 燃料量積算
    - 点火進角計算 & 保持時間後 OFF
 
@@ -106,6 +115,22 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
    - シリアル出力 (タブ/CSV)
 
 ## 燃料噴射計算
+
+噴射終了角度: 始動時（`startState == LOW`）は `start_INJ_END_CA`、通常時は `INJ_END_CA`  
+噴射開始角度: `INJ_STR_CA`（毎サイクルリセット時に逆算）
+
+```text
+inj_end_ca = (startState == LOW) ? start_INJ_END_CA : INJ_END_CA
+INJ_STR_CA = inj_end_ca - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidth[µs]
+// INJ_STR_CA < 0 の場合（0CA跨ぎ）: INJ_STR_CA += 720
+```
+
+**0CA跨ぎ対応**: 噴射開始が720CA付近・終了が次サイクル序盤（例: 716CA→20CA）の場合、
+`INJ_STR_CA` が負値になるため `+720` で正規化（0〜720CAの範囲に収める）。  
+`cycleReset()` 呼び出し時に噴射継続中（`INJ_Status == 2`）であれば INJ状態をリセットせず、
+タイマーで正常終了させる。  
+**360CA安全リセット**: 1サイクル内で360CAを通過した時点でも噴射中の場合は強制OFFし、
+意図しない噴射継続を防止（`inj360Reset` フラグで1サイクルに1回限り実行）。
 
 噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`  
 燃料量近似:
@@ -118,9 +143,12 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 
 ## 点火制御
 
-進角: `calculatedIGN_CA`  
-条件: `Ne_deg >= (360 - calculatedIGN_CA)` で点火 LOW  
-保持: `IGNITION_HOLD_US` 経過で HIGH 戻し。
+- 進角: `calculatedIGN_CA`  
+- ドゥエル時間（µs）: `Dwell_Time_US`
+  - ドゥエル時間をクランク角に変換: `Dwell_Time_CA = Dwell_Time_US * 360 / tachoWidth`
+- 条件: `Ne_deg >= (360 - calculatedIGN_CA - Dwell_Time_CA)` で点火 LOW  
+- 保持: クランク角が `360 - calculatedIGN_CA` に達する or `Dwell_Time_US` 経過で HIGH 戻し  
+- 点火: HIGH 戻しの瞬間にスパークプラグから放電
 
 ## MAP
 
@@ -135,7 +163,6 @@ gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 - 拡張:  
   - SD 読み込み有効化: フラグ `SDMapEnabled = true;` + `parseCSV()` 実装  
   - AFR 補正: A/Fセンサによる燃料噴射量補正のため、`Increase_Fuel` 分岐位置あり（未実装）
-  - 将来: `INJ_STR_CA` 列追加予定 (現状 0 固定)。
 
 ## 高速GPIO
 
@@ -184,22 +211,38 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 
 ## 拡張アイデア (TODO)
 
-- MAP内パラメータ選択・燃料噴射・点火処理高速化  
+- [x] MAP内パラメータ選択・燃料噴射・点火処理高速化  
   (現状では処理遅れに起因すると思われる過大な進角角度を設定している)
-- SD から MAP 読込実装 (`parseCSV`)
-- AFR センサ補正ロジック (`updateAFR`)
-- クランク角推定のドリフト補正（非エンコーダ時）
-- 例外検出 (センサ断線・異常 RPM)
-- フラッシュ書き込みによる学習補正保存
-- 単位/係数の物理モデル化（燃料密度, 噴射流量）
+- [ ] SD から MAP 読込実装 (`parseCSV`)
+- [ ] AFR センサ補正ロジック (`updateAFR`)
+- [ ] クランク角推定のドリフト補正（非エンコーダ時）
+- [ ] 例外検出 (センサ断線・異常 RPM)
+- [ ] フラッシュ書き込みによる学習補正保存
+- [ ] 単位/係数の物理モデル化（燃料密度, 噴射流量）
 
 ## ビルドオプションフラグ
 
 | フラグ | 影響 |
-|--------|------|
+| ------ | --- |
 | `uno_r4_minima` | 自動 (PlatformIO env) |
 | `rmc_ra4m1_20` | SD 初期化ブロック有効 |
 | `uno_r3` | AVR 高速 I/O 経路使用 |
+
+## デバッグ
+
+[Ardu-Stim](https://github.com/todateman/Ardu-Stim.git)の`develop/furoshiki`ブランチにある`furoshiki_2025`のパターンと、[visa-mcp](https://github.com/todateman/visa-mcp)によるオシロスコープの制御を組み合わせて、ECUプログラムのデバッグを行う。
+
+- VISAリソース(REGOL DHO804): `USB0::6833::1101::DHO8A253701207::0::INSTR`
+- CH1: D9
+- CH2: D2
+- CH3: A0
+- CH4: A1
+- 回転数は外部から可変変化させるので、GPIOピン出力を確認して`main.cpp`の`defaultMap`に対して乖離がないか確認する
+- 一度スタータボタンONの信号を入力しなければ`INJ_OUT`と`IGN_OUT`の信号出力を開始しないので、手動で実行する。
+
+評価結果:
+
+- [document/debug_report_20260330.md](document/debug_report_20260330.md)
 
 ## ライセンス
 
