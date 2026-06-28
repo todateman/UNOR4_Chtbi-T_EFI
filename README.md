@@ -50,10 +50,10 @@ pio device monitor -b 115200
 | PERIMETER_MM | 1548 | タイヤ周長(mm) |
 | TACHO_RPM_MAX | 6000 | レブリミット <BR> （回転数上限保護） |
 | Dwell_Time_US | 5000 | ドゥエル時間（us） <BR> IGコイルへの充電時間 |
-| start_INJ_time | 50 | 始動時の燃料噴射時間（x0.1ms） |
-| start_IGN_CA | 10 | 始動時の点火進角（CA） |
+| start_INJ_time | 80 | 始動時の燃料噴射時間（x0.1ms） |
+| start_IGN_CA | 0 | 始動時の点火進角（CA） |
 | start_INJ_END_CA | 20 | 始動時の燃料噴射終了タイミング角度（CA） |
-| INJ_END_CA | 700 | 通常時の燃料噴射終了タイミング角度（CA） |
+| INJ_END_CA | 680 | 通常時の燃料噴射終了タイミング角度（CA） |
 
 ## ピン割り当て
 
@@ -103,8 +103,16 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
 
 2. 周期関数 [`Routine`](src/main.cpp):
    - スタート/キル状態評価
+   - **スタータステートマシン** (`StarterState`): キルスイッチON時にスタートボタン押下でクランキング開始。  
+     1500rpm 0.1秒維持で始動成功（スタータ停止・通常MAP移行）、2秒タイムアウトで始動失敗（再押し待ち）。
+  
+     ```txt
+     STR_IDLE → [ボタン押下] → STR_CRANKING → [1500rpm×100ms] → STR_STARTED
+                                             → [2秒タイムアウト] → STR_FAILED → [再押し] → STR_CRANKING
+     ```
+
    - カム同期タイムアウト→`cycleReset`
-   - マップ更新: [`updateEngineMap`](src/main.cpp)
+   - マップ更新: [`updateEngineMap`](src/main.cpp)（始動中: `useStartMap=true` で始動MAP適用）
    - 噴射開始条件 (角度 >= `INJ_STR_CA`、始動時 `start_INJ_END_CA`・通常時 `INJ_END_CA` と噴射時間から逆算、0CA跨ぎ対応)
    - 360CA通過時に噴射継続中なら強制OFF（安全リセット）
    - 噴射時間経過で OFF & 燃料量積算
@@ -116,11 +124,11 @@ LOW アクティブ出力注意 (INJ/IGN/STR/DISRESET)。
 
 ## 燃料噴射計算
 
-噴射終了角度: 始動時（`startState == LOW`）は `start_INJ_END_CA`、通常時は `INJ_END_CA`  
+噴射終了角度: 始動中（`useStartMap == true`）は `start_INJ_END_CA`、通常時は `INJ_END_CA`  
 噴射開始角度: `INJ_STR_CA`（毎サイクルリセット時に逆算）
 
 ```text
-inj_end_ca = (startState == LOW) ? start_INJ_END_CA : INJ_END_CA
+inj_end_ca = useStartMap ? start_INJ_END_CA : INJ_END_CA
 INJ_STR_CA = inj_end_ca - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidth[µs]
 // INJ_STR_CA < 0 の場合（0CA跨ぎ）: INJ_STR_CA += 720
 ```
@@ -135,7 +143,7 @@ INJ_STR_CA = inj_end_ca - (calculatedINJ_time * 100[µs] * 360[deg]) / tachoWidt
 噴射時間: `calculatedINJ_time` (0.1ms単位) → 実際 µs: `injDuration = calculatedINJ_time * 100`  
 燃料量近似:
 
-```text
+```txt
 gasml += ( (Δt * 0.0000007) + 0.0015 ) / 1.5073
 ```
 
@@ -213,6 +221,8 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 
 - [x] MAP内パラメータ選択・燃料噴射・点火処理高速化  
   (現状では処理遅れに起因すると思われる過大な進角角度を設定している)
+- [x] スタータ制御の自動化（Issue #11）  
+  (1500rpm×0.1秒維持で自動停止、2秒タイムアウトで失敗検出・再試行可)
 - [ ] SD から MAP 読込実装 (`parseCSV`)
 - [ ] AFR センサ補正ロジック (`updateAFR`)
 - [ ] クランク角推定のドリフト補正（非エンコーダ時）
