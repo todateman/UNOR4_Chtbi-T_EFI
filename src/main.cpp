@@ -457,12 +457,20 @@ void statusTask(void *pvParameters) {
     INJ_timems = calculatedINJ_time * 0.1f;
 
     if (Serial1Enabled) {
+      // newlib-nano の snprintf は %.1f 非対応のため整数演算で小数1桁を表現
+      unsigned inj10 = (unsigned)(INJ_timems * 10.0f + 0.5f);
+      unsigned gas10 = (unsigned)(gasml * 10.0f + 0.5f);
+      unsigned dis10 = (unsigned)(dispergas * 10.0f + 0.5f);
       int len = snprintf(s1buf, sizeof(s1buf),
-        "%u,%.1f,%d,%.1f,%u,%.1f,%.1f,%u\n",
-        (unsigned)tachoRpm, (double)INJ_timems,
-        (int)calculatedIGN_CA, (double)(speed / 10.0f),
-        (unsigned)distance, (double)gasml,
-        (double)dispergas, (unsigned)worktime);
+        "%u,%u.%u,%d,%lu.%lu,%u,%u.%u,%u.%u,%u\n",
+        (unsigned)tachoRpm,           // RPM
+        inj10 / 10, inj10 % 10,       // INJ_timems
+        (int)calculatedIGN_CA,        // calculatedIGN_CA
+        speed / 10, speed % 10,       // speed
+        (unsigned)distance,           // distance
+        gas10 / 10, gas10 % 10,       // gasml
+        dis10 / 10, dis10 % 10,       // dispergas
+        (unsigned)worktime);          // worktime
       if (len > 0) Serial1.write((uint8_t*)s1buf, (size_t)len);
     }
 
