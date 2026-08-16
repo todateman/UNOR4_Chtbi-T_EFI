@@ -16,12 +16,14 @@ Arduino UNO R4（RA4M1）/ 互換環境上で動作するエコラン車両用EC
 ## ディレクトリ構成（抜粋）
 
 - [src/main.cpp](src/main.cpp) : コアロジック
+- [src/injector_test.cpp](src/injector_test.cpp) : インジェクタ特性調査用独立プログラム
 - [src/fastestdigitalRW.hpp](src/fastestdigitalRW.hpp) : ボード別最速 GPIO
 - [lib/AGTimer_R4_Library](lib/AGTimer_R4_Library) : 周期タイマ
 - [platformio.ini](platformio.ini) : ビルド環境定義
 - microSD/ : 走行ログや MAP 用 CSV（将来拡張）
 - log/ : 記録例
 - [document/arduino-workflow.puml](document/arduino-workflow.puml) : PlantUML ワークフロー図（詳細版）
+- [document/Investigation_of_Injector_Characteristics.md](document/Investigation_of_Injector_Characteristics.md) : インジェクタ特性調査手順書
 
 ## 対応ボード / ビルド
 
@@ -30,6 +32,7 @@ PlatformIO 環境: [platformio.ini](platformio.ini)
 | Env | ボード | 備考 |
 | --- | ------ | ---- |
 | `uno_r4_minima` | Arduino UNO R4 Minima | デフォルト |
+| `uno_r4_minima_inj_test` | Arduino UNO R4 Minima | インジェクタ試験用ビルド |
 | `rmc_ra4m1_20` | カスタム RA4M1 (`-D rmc_ra4m1_20`) | SD動作分岐あり |
 | `uno_r3` | ATmega328P | 高速GPIO分岐あり |
 
@@ -213,20 +216,13 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 
 - [x] MAP内パラメータ選択・燃料噴射・点火処理高速化  
   (現状では処理遅れに起因すると思われる過大な進角角度を設定している)
+- [ ] インジェクタ特性（無効噴射時間・流量）を調査（`document/Investigation_of_Injector_Characteristics.md`参照）
 - [ ] SD から MAP 読込実装 (`parseCSV`)
 - [ ] AFR センサ補正ロジック (`updateAFR`)
 - [ ] クランク角推定のドリフト補正（非エンコーダ時）
 - [ ] 例外検出 (センサ断線・異常 RPM)
 - [ ] フラッシュ書き込みによる学習補正保存
 - [ ] 単位/係数の物理モデル化（燃料密度, 噴射流量）
-
-## ビルドオプションフラグ
-
-| フラグ | 影響 |
-| ------ | --- |
-| `uno_r4_minima` | 自動 (PlatformIO env) |
-| `rmc_ra4m1_20` | SD 初期化ブロック有効 |
-| `uno_r3` | AVR 高速 I/O 経路使用 |
 
 ## デバッグ
 
