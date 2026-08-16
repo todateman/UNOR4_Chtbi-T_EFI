@@ -11,5 +11,8 @@
         "cstddef": "cpp",
         "iterator": "cpp",
         "*.tcc": "cpp"
-    }
+    },
+    "git.pruneOnFetch": true,
+    "git.autofetch": true,
+    "git.autofetchPeriod": 600,
 }
