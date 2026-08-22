@@ -252,3 +252,4 @@ java -jar "$env:USERPROFILE\.vscode\extensions\jebbs.plantuml-2.18.1\plantuml.ja
 - ウォッチドッグ / フェールセーフ / 過回転保護など追加必須
 - 電源ノイズ対策 (車載 12V → 5V/3.3V 安定化)
 - I/O レベルと駆動回路(インジェクタ / イグナイタ)の絶縁
+  - インジェクタ電流値：1.5A/16.1V （2026.08.22 実測）

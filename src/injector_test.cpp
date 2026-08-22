@@ -23,8 +23,8 @@
 // =====================================================================
 
 float    INJ_time_ms     = 4.0;   // インジェクタ噴射パルス幅 [ms]（0.1ms単位推奨）
-uint16_t INJ_count        = 3000; // 1回の計測で打つパルス数
-uint16_t INJ_interval_ms  = 100;  // パルス間隔 [ms]（噴射時間を含まないOFF区間）
+uint16_t INJ_count        = 300; // 1回の計測で打つパルス数
+uint16_t INJ_interval_ms  = 50;  // パルス間隔 [ms]（噴射時間を含まないOFF区間）
 
 uint8_t STR_IN = 6;       // スタータボタン入力
 uint8_t ENGOFF_IN = 7;    // キルスイッチ入力
@@ -84,6 +84,11 @@ void setup() {
   pinMode(IGN_OUT, OUTPUT);
   pinMode(STR_OUT, OUTPUT);
   pinMode(DISRESET_OUT, OUTPUT);
+
+  digitalWrite(INJ_OUT, HIGH);
+  digitalWrite(IGN_OUT, HIGH);
+  digitalWrite(STR_OUT, HIGH);
+  digitalWrite(DISRESET_OUT, HIGH);
 
   delay(300);
   Serial.println(F("=== インジェクタ特性試験モード ==="));
