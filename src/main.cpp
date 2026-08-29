@@ -440,6 +440,8 @@ void Routine() {
   }
   else {                                      // キルスイッチがOFFの場合（停止状態）
     ENG_ON = false;
+    STR_IN_state = false;
+    fastestdigitalWrite(STR_OUT, HIGH);        // スタータOFF（安全のため強制的にOFFへ）
   }
 }
 
